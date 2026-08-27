@@ -1,0 +1,1 @@
+{"expression":"(() => { [...document.querySelectorAll(\"button\")].find(b => b.textContent.trim() === \"Browse Files\").click(); return \"browse clicked\"; })()"}

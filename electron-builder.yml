@@ -1,0 +1,38 @@
+appId: com.srt-translator.app
+productName: SRT Translator
+directories:
+  buildResources: build
+  output: release
+files:
+  - out/**/*
+  - package.json
+extraResources:
+  - from: resources/tools
+    to: tools
+asar: true
+compression: maximum
+electronLanguages:
+  - en-US
+removePackageScripts: true
+win:
+  target: nsis
+  icon: build/icon.ico
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+linux:
+  target:
+    - appImage
+    - deb
+  icon: build/icon.png
+  category: Utility
+  synopsis: AI-powered English to Sinhala SRT subtitle translator
+  maintainer: Yehan <yehan@swict.lk>
+  syncDesktopName: true
+  # Let the system MKVToolNix (pacman/apt) provide mkvmerge/mkvextract instead
+  # of shipping the Windows-only .exe binaries in resources/tools.
+  files:
+    - out/**/*
+    - package.json
+    - '!resources/tools/*.exe'

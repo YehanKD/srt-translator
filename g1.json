@@ -1,0 +1,1 @@
+{"expression":"JSON.stringify({outerW: window.outerWidth, outerH: window.outerHeight, innerW: window.innerWidth, innerH: window.innerHeight, screenW: screen.width, screenH: screen.height, dpr: window.devicePixelRatio})"}

@@ -1,0 +1,40 @@
+1
+00:00:01,000 --> 00:00:03,500
+Hello, how are you today?
+
+2
+00:00:04,000 --> 00:00:06,500
+I'm doing great, thank you for asking.
+
+3
+00:00:07,000 --> 00:00:10,000
+[Background music playing]
+Let's go to the store together.
+
+4
+00:00:11,000 --> 00:00:14,500
+That sounds like a wonderful idea!
+
+5
+00:00:15,000 --> 00:00:18,000
+What the hell are you doing here?
+
+6
+00:00:19,000 --> 00:00:22,000
+I've been waiting for you all day, damn it.
+
+7
+00:00:23,000 --> 00:00:26,500
+Shut the fuck up and listen to me.
+
+8
+00:00:27,000 --> 00:00:30,000
+The weather is beautiful today, isn't it?
+
+9
+00:00:31,000 --> 00:00:34,500
+Yes, it's a perfect day for a walk in the park.
+
+10
+00:00:35,000 --> 00:00:38,000
+Let's grab some coffee on the way.
