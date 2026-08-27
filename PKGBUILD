@@ -11,7 +11,7 @@ optdepends=(
   'mkvtoolnix-cli: extract subtitles from MKV files'
 )
 options=('!strip')
-_appimage="SRT Translator-${pkgver}.AppImage"
+_appimage="SRT.Translator-${pkgver}.AppImage"
 source=("${url}/releases/download/v${pkgver}/${_appimage}")
 sha256sums=('c94c3a9cfbc2d7fd9f34063ebfdc2dfb34c0f6045ced29fa51bfd017a4284c19')
 
