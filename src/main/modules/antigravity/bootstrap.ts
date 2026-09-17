@@ -19,6 +19,35 @@ export interface CodeAssistInfo {
 export async function loadCodeAssist(
   accessToken: string
 ): Promise<CodeAssistInfo | null> {
+  const found = await discoverAccount(accessToken)
+  if (!found.projectId) return null
+  return {
+    projectId: found.projectId,
+    tierId: found.tierId ?? 'legacy-tier',
+    plan: found.plan
+  }
+}
+
+export interface AccountDiscovery {
+  /** null when Google has not assigned a project to this account. */
+  projectId: string | null
+  /** The account's real tier, present even when there is no project. */
+  tierId: string | null
+  plan: string
+  /** True when Google returned 200 but no project — BYOP, needs a GCP project. */
+  requiresManualProject: boolean
+}
+
+/**
+ * Discover the account's project and tier, WITHOUT failing when no project
+ * exists.
+ *
+ * The tier is returned even with no project because onboardUser needs it: a
+ * paid account onboarded as "free-tier" asks Google for the wrong tier. The
+ * old code discarded the whole response when the project was missing, so the
+ * tier was lost and every retry used a guessed value.
+ */
+export async function discoverAccount(accessToken: string): Promise<AccountDiscovery> {
   const headers = getAntigravityContentHeaders(accessToken)
   const metadata = getAntigravityLoadCodeAssistMetadata()
 
@@ -32,25 +61,76 @@ export async function loadCodeAssist(
       })
       if (!response.ok) continue
 
-      const data = await response.json() as Record<string, unknown>
-      const project = data.cloudaicompanionProject
-      const projectId = typeof project === 'string'
-        ? project
-        : typeof project === 'object' && project && 'id' in project
-          ? String((project as { id: unknown }).id)
-          : null
-
-      if (!projectId) return null
-
+      const data = (await response.json()) as Record<string, unknown>
+      const projectId = readProjectId(data.cloudaicompanionProject)
       const tier = extractTier(data)
-      const plan = planLabelFromTier(tier)
+      const tierId = onboardTierId(data) ?? tier?.id ?? null
 
-      return { projectId, tierId: tier?.id ?? 'free-tier', plan }
+      return {
+        projectId,
+        tierId,
+        plan: planLabelFromTier(tier),
+        requiresManualProject: !projectId
+      }
     } catch {
       // try next endpoint
     }
   }
+  return { projectId: null, tierId: null, plan: 'Free', requiresManualProject: false }
+}
+
+/** Read a project id from the several shapes the API uses. */
+function readProjectId(value: unknown): string | null {
+  if (typeof value === 'string') return value.trim() || null
+  if (value && typeof value === 'object' && 'id' in value) {
+    const id = String((value as { id: unknown }).id).trim()
+    return id || null
+  }
   return null
+}
+
+/**
+ * Pick the tier id to send to onboardUser.
+ *
+ * OmniRoute sends the account's ACTUAL tier (paidTier -> currentTier ->
+ * default allowedTier -> "legacy-tier"). Sending a hardcoded "free-tier" for a
+ * paid account asks Google to onboard it at the wrong tier, which can be
+ * refused. Mirrors OmniRoute's `extractCodeAssistOnboardTierId`.
+ */
+function onboardTierId(data: Record<string, unknown>): string | null {
+  const tierIdOf = (raw: unknown): string | null => {
+    if (!raw || typeof raw !== 'object') return null
+    const id = (raw as { id?: unknown }).id
+    return typeof id === 'string' && id.trim() ? id.trim() : null
+  }
+
+  const paid = tierIdOf(data.paidTier)
+  if (paid) return paid
+
+  // `ineligibleTiers` present means this account can't use currentTier.
+  const ineligible = data.ineligibleTiers
+  const restricted = Array.isArray(ineligible) && ineligible.length > 0
+
+  if (!restricted) {
+    const current = tierIdOf(data.currentTier)
+    if (current) return current
+  }
+
+  if (Array.isArray(data.allowedTiers)) {
+    for (const raw of data.allowedTiers) {
+      if ((raw as Record<string, unknown>)?.isDefault === true) {
+        const id = tierIdOf(raw)
+        if (id) return id
+      }
+    }
+  }
+
+  const current = tierIdOf(data.currentTier)
+  if (current) return current
+
+  // OmniRoute's fallback — deliberately not "free-tier": a fresh account
+  // onboards as a legacy-tier Code Assist user.
+  return 'legacy-tier'
 }
 
 /**
@@ -75,16 +155,6 @@ export async function loadCodeAssist(
 const ONBOARD_POLL_INTERVAL_MS = 2000
 const ONBOARD_TIMEOUT_MS = 60_000
 
-/** Pull a project id out of whatever shape the API returns. */
-function readProjectId(value: unknown): string | null {
-  if (typeof value === 'string') return value || null
-  if (value && typeof value === 'object' && 'id' in value) {
-    const id = String((value as { id: unknown }).id)
-    return id || null
-  }
-  return null
-}
-
 /** Extract the project from a completed operation payload. */
 function projectFromOperation(
   payload: Record<string, unknown>
@@ -102,9 +172,24 @@ function projectFromOperation(
   return { projectId, tierId: tier?.id ?? 'free-tier', plan: planLabelFromTier(tier) }
 }
 
+/**
+ * Onboard a user (create a Cloud Code project) when loadCodeAssist returned no
+ * project.
+ *
+ * Two shapes exist in the wild and both are handled:
+ *   - A long-running operation: `{ name: 'operations/...', done: false }`,
+ *     which must be polled until done. Reading `done === true` once and giving
+ *     up is what made sign-in fail for every fresh account.
+ *   - A plain 200 with no project in the body, which means Google expects the
+ *     account to bring its own GCP project (OmniRoute calls this BYOP). No
+ *     amount of retrying fixes that, so it is reported distinctly.
+ *
+ * The tier id matters: OmniRoute sends the account's REAL tier. A hardcoded
+ * "free-tier" asks Google to onboard a paid account at the wrong tier.
+ */
 export async function onboardUser(
   accessToken: string,
-  tierId = 'free-tier'
+  tierId = 'legacy-tier'
 ): Promise<{ projectId: string; tierId: string; plan: string } | null> {
   const headers = getAntigravityContentHeaders(accessToken)
   const metadata = getAntigravityLoadCodeAssistMetadata()
@@ -119,7 +204,17 @@ export async function onboardUser(
       })
       if (!response.ok) continue
 
-      let data = (await response.json()) as Record<string, unknown>
+      // Read as text first: the BYOP case is a valid 200 whose body has no
+      // project anywhere in it, and we must tell that apart from success.
+      const rawBody = await response.text()
+      const hasProjectField = /cloudaicompanionProject/.test(rawBody)
+
+      let data: Record<string, unknown> = {}
+      try {
+        data = JSON.parse(rawBody) as Record<string, unknown>
+      } catch {
+        // Non-JSON 200 — falls through to the BYOP check below.
+      }
 
       // A fast path: some accounts come back already done.
       const immediate = projectFromOperation(data)
@@ -129,7 +224,9 @@ export async function onboardUser(
       // never created and sign-in fails for new accounts.
       const operationName = typeof data.name === 'string' ? data.name : null
       if (!operationName) {
-        // No name and not done — nothing to poll, so try the next endpoint.
+        // 200, no operation, no project: Google will not create one for this
+        // account. Return a sentinel (empty projectId) the caller can detect.
+        if (!hasProjectField) return { projectId: '', tierId, plan: 'Free' }
         continue
       }
 

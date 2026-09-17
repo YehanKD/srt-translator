@@ -2,7 +2,8 @@ import { randomBytes } from 'crypto'
 import { getAntigravityContentHeaders } from './headers'
 import { ANTIGRAVITY_RUNTIME_BASE_URLS, ANTIGRAVITY_ENVELOPE_USER_AGENT } from './constants'
 import { resolveAntigravityModelId, getAntigravityModelFallbacks } from './catalog'
-import { getAccessToken, getSession } from './session'
+import { getAccessToken, getSession, setSession } from './session'
+import { discoverAccount, onboardUser } from './bootstrap'
 
 export interface AntigravityMessage {
   role: 'user' | 'model'
@@ -66,9 +67,38 @@ export async function sendAntigravityRequest(
   if (!accessToken) {
     throw new AntigravityApiError('Not signed in to Antigravity. Please sign in again.', 401)
   }
-  const projectId = session?.projectId
+
+  // Self-heal a missing project at request time.
+  //
+  // Google does not assign a Cloud Code project to every account, and one can
+  // appear later (it is provisioned asynchronously). OmniRoute handles this by
+  // re-running discovery on each request and persisting whatever it finds, so
+  // an account that could not be onboarded at sign-in starts working on its
+  // own once Google catches up — no re-sign-in needed.
+  //
+  // Previously this threw outright, which turned a temporary upstream state
+  // into a permanent-looking failure.
+  let projectId = session?.projectId ?? null
   if (!projectId) {
-    throw new AntigravityApiError('No Cloud Code project found for this account. Re-sign in.', 403)
+    const found = await discoverAccount(accessToken)
+    projectId = found.projectId
+    if (!projectId) {
+      const onboarded = await onboardUser(accessToken, found.tierId ?? 'legacy-tier')
+      projectId = onboarded?.projectId || null
+    }
+    if (projectId && session) {
+      // Persist so later requests skip discovery entirely.
+      setSession({ ...session, projectId })
+    }
+  }
+
+  if (!projectId) {
+    throw new AntigravityApiError(
+      'This Google account has no Cloud Code project yet. ' +
+        'It is created automatically the first time the account uses Gemini Code Assist — ' +
+        'sign in to the Antigravity IDE once with this account, then retry.',
+      403
+    )
   }
 
   const upstreamModel = resolveAntigravityModelId(request.model)

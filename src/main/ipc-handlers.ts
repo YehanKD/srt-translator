@@ -17,7 +17,7 @@ import {
 } from './modules/antigravity/oauth'
 import { getSession, setSession, clearSession, getAccount, getAccessToken, logout, restoreSession } from './modules/antigravity/session'
 import { canPersistSession } from './modules/antigravity/storage'
-import { loadCodeAssist, onboardUser, fetchUserInfo } from './modules/antigravity/bootstrap'
+import { loadCodeAssist, onboardUser, fetchUserInfo, discoverAccount } from './modules/antigravity/bootstrap'
 import { fetchQuota } from './modules/antigravity/quota'
 import { pickChatModels, ANTIGRAVITY_PUBLIC_MODELS, ANTIGRAVITY_DEFAULT_MODEL_ID } from './modules/antigravity/catalog'
 
@@ -145,21 +145,32 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
         throw new Error('Could not fetch user info')
       }
 
-      // Load Code Assist project
-      let loadResult = await loadCodeAssist(tokens.accessToken)
-      if (!loadResult) {
-        // No project yet — the account needs onboarding, which creates one.
+      // Discover the Cloud Code project. A missing project must NOT fail the
+      // sign-in: Google does not assign one to every account, and it can
+      // appear later (discovery is retried per request). Failing here threw
+      // away a valid refresh token and forced a fresh consent screen for
+      // something the user cannot fix by signing in again.
+      let discovery = await discoverAccount(tokens.accessToken)
+
+      if (!discovery.projectId) {
         emitAuthProgress(window, {
           phase: 'onboarding',
           message: 'Setting up this account (first-time)…'
         })
-        loadResult = await onboardUser(tokens.accessToken)
-        if (!loadResult) {
-          throw new Error(
-            'No Cloud Code project available for this account. ' +
-              'This usually means the Google account has not been used with Code Assist before. ' +
-              'Try signing in with the Antigravity IDE once, or use a different Google account.'
-          )
+        // Onboard with the account's REAL tier, falling back to legacy-tier.
+        const onboarded = await onboardUser(
+          tokens.accessToken,
+          discovery.tierId ?? 'legacy-tier'
+        )
+        if (onboarded?.projectId) {
+          // Re-read so the tier/plan come from a normal discovery response.
+          const after = await discoverAccount(tokens.accessToken)
+          discovery = {
+            ...after,
+            projectId: after.projectId ?? onboarded.projectId,
+            tierId: after.tierId ?? onboarded.tierId,
+            plan: after.plan !== 'Free' ? after.plan : onboarded.plan
+          }
         }
       }
 
@@ -169,14 +180,19 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
         expiresAt: tokens.expiresIn ? Date.now() + tokens.expiresIn * 1000 : undefined,
         email: userInfo.email,
         picture: userInfo.picture,
-        plan: loadResult.plan,
-        projectId: loadResult.projectId,
-        tierId: loadResult.tierId,
+        plan: discovery.plan,
+        projectId: discovery.projectId,
+        tierId: discovery.tierId,
         connectedAt: Date.now()
       }
 
       setSession(session)
-      emitAuthProgress(window, { phase: 'complete', message: 'Signed in successfully' })
+      emitAuthProgress(window, {
+        phase: 'complete',
+        message: discovery.projectId
+          ? 'Signed in successfully'
+          : 'Signed in — this account has no Cloud Code project yet'
+      })
       emitAuthStateChanged(window)
 
       // Close the listener
