@@ -1,6 +1,21 @@
-import { refreshAccessToken, revokeGoogleToken } from './oauth'
+import { refreshAccessToken, revokeGoogleToken, OAuthError } from './oauth'
 import { saveSession, loadPersistedSession, clearPersistedSession } from './storage'
 import type { AntigravityAccount } from '@shared/types'
+
+/**
+ * True only when Google has definitively rejected the refresh token, i.e. the
+ * user must sign in again. Anything else (network error, timeout, 5xx) is
+ * transient and must not destroy the stored login.
+ */
+function isPermanentAuthFailure(err: unknown): boolean {
+  const code = err instanceof OAuthError ? err.code : ''
+  const message = err instanceof Error ? err.message : String(err)
+  return (
+    code === 'token_exchange' ||
+    code === 'refresh_failed' ||
+    /invalid_grant|invalid_request|unauthorized_client|expired|revoked/i.test(message)
+  )
+}
 
 export interface AntigravitySession {
   accessToken: string
@@ -68,12 +83,18 @@ export async function restoreSession(): Promise<boolean> {
     connectedAt: saved.connectedAt
   }
 
-  const token = await getAccessToken()
-  if (!token) {
-    // Refresh token was revoked/expired: clearSession() already wiped storage.
-    return false
+  // Startup is exactly when a transient failure is most likely (network not up
+  // yet, DNS still resolving, VPN connecting). Retry a few times before
+  // declaring the session unusable, so a blip doesn't cost the user a sign-in.
+  const attempts = 3
+  for (let i = 0; i < attempts; i++) {
+    const token = await getAccessToken()
+    if (token) return true
+    // clearSession() ran => the refresh token is genuinely dead; stop retrying.
+    if (!getSession()) return false
+    if (i < attempts - 1) await new Promise((r) => setTimeout(r, 1500 * (i + 1)))
   }
-  return true
+  return false
 }
 
 export async function getAccessToken(): Promise<string | null> {
@@ -90,10 +111,16 @@ export async function getAccessToken(): Promise<string | null> {
       // Keep the stored refresh token current (Google may rotate it).
       saveSession(session)
       return session.accessToken
-    } catch {
-      // Refresh failed; clear session (and stored credentials) so the UI can
-      // ask for a fresh sign-in.
-      clearSession()
+    } catch (err) {
+      // Only discard the stored credential when Google definitively rejected
+      // it (invalid_grant / revoked). A network blip, timeout, or 5xx must NOT
+      // delete the user's login — that would force a full sign-in on every
+      // flaky start. Keep the in-memory session so a retry can succeed.
+      if (isPermanentAuthFailure(err)) {
+        clearSession()
+      } else {
+        session.expiresAt = now + 60 * 1000 // retry in a minute
+      }
       return null
     }
   }
