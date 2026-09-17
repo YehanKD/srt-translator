@@ -13,3 +13,13 @@ out/
 
 # Build artifacts / distributables — these go in GitHub Releases, not git
 release/
+dist/
+*.AppImage
+*.deb
+*.exe
+*.blockmap
+latest*.yml
+
+# Local scratch dirs used while packaging (e.g. a copy of the Windows
+# installer kept aside so a Linux rebuild can't clobber it)
+.win-backup/

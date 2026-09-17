@@ -6,7 +6,7 @@ import type {
   AntigravityModel
 } from '@shared/types'
 
-const MODEL_STORAGE_KEY = 'srt-translator-selected-model'
+import { pickAutoModel } from '../lib/models'
 
 export function useAntigravity() {
   const [status, setStatus] = useState<AccountStatus>({
@@ -18,13 +18,12 @@ export function useAntigravity() {
   const [progress, setProgress] = useState<AuthProgress | null>(null)
   const [quota, setQuota] = useState<QuotaSummary | null>(null)
   const [models, setModels] = useState<AntigravityModel[]>([])
-  const [selectedModelId, setSelectedModelId] = useState<string>(() => {
-    try {
-      return localStorage.getItem(MODEL_STORAGE_KEY) || 'gemini-3.1-pro-low'
-    } catch {
-      return 'gemini-3.1-pro-low'
-    }
-  })
+  // Empty until the account's model list arrives, at which point
+  // loadModels() auto-selects. Nothing is persisted: auto-selection wins on
+  // every launch and a manual pick is deliberately session-only.
+  const [selectedModelId, setSelectedModelId] = useState<string>('')
+  // false once the user picks a model by hand, so the UI can label it Manual.
+  const [modelIsAutomatic, setModelIsAutomatic] = useState(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const cleanupRefs = useRef<(() => void)[]>([])
@@ -70,18 +69,20 @@ export function useAntigravity() {
       const res = await window.electronAPI.listModels()
       if (res.success && res.data) {
         setModels(res.data)
-        // If selected model is not in the list, default to first or fallback
-        if (res.data.length > 0) {
-          const exists = res.data.some(m => m.id === selectedModelId)
-          if (!exists) {
-            setSelectedModelId(res.data[0].id)
-          }
+        // Always auto-select on load: prefer the newest Pro the account offers,
+        // falling back to whatever exists so translating is never blocked.
+        // (Previously this took res.data[0] — literally whatever the account
+        // listed first, which could be a Flash model.)
+        const auto = pickAutoModel(res.data)
+        if (auto) {
+          setSelectedModelId(auto)
+          setModelIsAutomatic(true)
         }
       }
     } catch (err) {
       console.error('Failed to load models:', err)
     }
-  }, [selectedModelId])
+  }, [])
 
   // Load quota
   const loadQuota = useCallback(async () => {
@@ -141,15 +142,20 @@ export function useAntigravity() {
     loadStatus()
   }, [loadStatus, loadModels, loadQuota])
 
-  // Persist selected model
+  // Manual pick — session-only by design. Marked so the UI can say "Manual".
   const selectModel = useCallback((modelId: string) => {
     setSelectedModelId(modelId)
-    try {
-      localStorage.setItem(MODEL_STORAGE_KEY, modelId)
-    } catch {
-      // ignore
-    }
+    setModelIsAutomatic(false)
   }, [])
+
+  // Return to the auto-chosen model.
+  const resetToAutoModel = useCallback(() => {
+    const auto = pickAutoModel(models)
+    if (auto) {
+      setSelectedModelId(auto)
+      setModelIsAutomatic(true)
+    }
+  }, [models])
 
   // Login
   const login = useCallback(async () => {
@@ -190,6 +196,7 @@ export function useAntigravity() {
     quota,
     models,
     selectedModelId,
+    modelIsAutomatic,
     loading,
     error,
     canPersist,
@@ -197,6 +204,7 @@ export function useAntigravity() {
     cancelLogin,
     logout,
     selectModel,
+    resetToAutoModel,
     refreshQuota
   }
 }

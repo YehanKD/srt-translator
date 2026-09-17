@@ -8,7 +8,12 @@ files:
   - package.json
   - '!out/**/*.tsbuildinfo'
 asar: true
-compression: maximum
+# `maximum` builds the squashfs with xz, which is decompressed on the fly through
+# FUSE at every file read. Electron touches hundreds of files during startup, so
+# that turned a cold launch into a 77-second wait. `normal` uses zstd — the file
+# is a little larger but starts in about a second, which is the trade that
+# matters for a desktop app.
+compression: normal
 electronLanguages:
   - en-US
 removePackageScripts: true
@@ -32,7 +37,7 @@ linux:
     - deb
   icon: build/icon.png
   category: Utility
-  synopsis: AI-powered English to Sinhala SRT subtitle translator
+  synopsis: Subtitle translator — any language into natural spoken Sinhala
   maintainer: Yehan <yehan@swict.lk>
   syncDesktopName: true
   # Linux uses the system MKVToolNix (pacman/apt) via the PATH lookups in

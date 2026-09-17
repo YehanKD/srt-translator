@@ -34,15 +34,15 @@ echo "==> Creating GitHub release $TAG on $REPO"
 gh release create "$TAG" "${ASSETS[@]}" \
   --repo "$REPO" \
   --title "SRT Translator $TAG" \
-  --notes "AI-powered English to Sinhala SRT subtitle translator.
+  --notes "AI-powered subtitle translator: any language into natural spoken Sinhala.
 
 Sign in with your Google account to translate using its Gemini quota — no API key needed.
 
 **Highlights**
 - Google Antigravity sign-in (replaces the old API-key backend)
 - Session is remembered between launches (refresh token encrypted via the OS keyring)
-- Failed chunks now report an error instead of silently exporting untranslated English
-- Per-model and weekly quota view
+- Failed chunks report an error instead of silently exporting untranslated text
+- Per-model quota view with the plan-appropriate reset window
 - Linux packages no longer bundle ~38 MB of Windows-only MKVToolNix binaries
 
 **Linux install**

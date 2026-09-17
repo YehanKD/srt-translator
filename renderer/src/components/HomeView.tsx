@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SubtitleEntry, MkvSubtitleTrack } from '@shared/types'
+import { Modal, ModalHeader, ModalFooter } from './Modal'
+import { IconMessageSquareText, IconUpload, IconAlert } from './Icons'
 
 interface Props {
-  onOpenTranslator: () => void
   onLoaded: (entries: SubtitleEntry[], fileName: string) => void
   initialMkvPath?: string | null
   onMkvPathConsumed?: () => void
@@ -10,7 +11,17 @@ interface Props {
 
 type Phase = 'idle' | 'picking' | 'extracting'
 
-export function HomeView({ onOpenTranslator, onLoaded, initialMkvPath, onMkvPathConsumed }: Props) {
+/**
+ * Start screen. One entry point: the drop zone is both a drop target AND the
+ * browse button.
+ *
+ * Previously the zone advertised "or click to choose a file" but its click
+ * handler only switched to the workspace, so the text was false and the user had
+ * to click again there. The two alternative cards below (Open subtitle file /
+ * Extract from movie) duplicated what the zone already does, so they're gone —
+ * `pickInput()` classifies the chosen file and routes .srt vs .mkv by extension.
+ */
+export function HomeView({ onLoaded, initialMkvPath, onMkvPathConsumed }: Props) {
   const [phase, setPhase] = useState<Phase>('idle')
   const [mkvPath, setMkvPath] = useState('')
   const [mkvName, setMkvName] = useState('')
@@ -18,6 +29,7 @@ export function HomeView({ onOpenTranslator, onLoaded, initialMkvPath, onMkvPath
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [error, setError] = useState('')
   const [dragging, setDragging] = useState(false)
+  const [browsing, setBrowsing] = useState(false)
   const dragDepth = useRef(0)
 
   const listTracksFor = useCallback(async (path: string) => {
@@ -32,19 +44,38 @@ export function HomeView({ onOpenTranslator, onLoaded, initialMkvPath, onMkvPath
         setPhase('idle')
         return
       }
-      setTracks((res.data || []) as MkvSubtitleTrack[])
-      setPhase((res.data && (res.data as MkvSubtitleTrack[]).length > 0) ? 'picking' : 'idle')
-      if (res.data && res.data.length === 0) setError('No subtitle tracks found in this movie.')
+      const list = (res.data || []) as MkvSubtitleTrack[]
+      setTracks(list)
+      setPhase(list.length > 0 ? 'picking' : 'idle')
+      if (list.length === 0) setError('No subtitle tracks found in this movie.')
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       setPhase('idle')
     }
   }, [])
 
-  const openMkv = useCallback(async () => {
-    const res = await window.electronAPI.selectMkv()
-    if (res.success && res.data) void listTracksFor(res.data)
-  }, [listTracksFor])
+  /** The zone's click action: open the picker and route by file kind. */
+  const browse = useCallback(async () => {
+    setError('')
+    setBrowsing(true)
+    try {
+      const res = await window.electronAPI.pickInput()
+      if (!res.success) {
+        setError(res.error || 'Could not open that file.')
+        return
+      }
+      const picked = res.data
+      if (!picked) return // cancelled
+
+      if (picked.kind === 'mkv') {
+        void listTracksFor(picked.mkvPath!)
+        return
+      }
+      if (picked.result) onLoaded(picked.result.entries, picked.result.fileName)
+    } finally {
+      setBrowsing(false)
+    }
+  }, [listTracksFor, onLoaded])
 
   const closePicker = useCallback(() => {
     setPhase('idle')
@@ -82,10 +113,8 @@ export function HomeView({ onOpenTranslator, onLoaded, initialMkvPath, onMkvPath
     }
   }, [selectedId, mkvPath, onLoaded])
 
-  // ── Drag & drop (whole home area) ─────────────────────────────────────
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-  }, [])
+  // ── Drag & drop over the whole surface ───────────────────────────────────
+  const handleDragOver = useCallback((e: React.DragEvent) => e.preventDefault(), [])
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     dragDepth.current += 1
@@ -115,144 +144,136 @@ export function HomeView({ onOpenTranslator, onLoaded, initialMkvPath, onMkvPath
         if (res.success && res.data) onLoaded(res.data.entries, res.data.fileName)
         else setError(res.error || 'Could not read the .srt file.')
       } else {
-        setError('Drop an .mkv movie or an .srt subtitle file.')
+        setError('That file type isn’t supported — drop an .srt subtitle or an .mkv movie.')
       }
     },
     [listTracksFor, onLoaded]
   )
 
   const languageLabel = (t: MkvSubtitleTrack) => {
-    const lang = t.language && t.language !== 'und' ? t.language.toUpperCase() : 'Any'
-    const extra = t.trackName ? ` · ${t.trackName}` : ''
-    return `${lang}${extra}`
+    const lang = t.language && t.language !== 'und' ? t.language.toUpperCase() : 'Any language'
+    return t.trackName ? `${lang} · ${t.trackName}` : lang
   }
 
   return (
     <div
-      className={`flex-1 flex flex-col items-center justify-center p-8 overflow-y-auto transition-colors ${
-        dragging ? 'bg-blue-950/40' : 'bg-transparent'
-      }`}
+      className="flex-1 overflow-y-auto"
       onDragOver={handleDragOver}
+      onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDrop={(e) => void handleDrop(e)}
     >
-      <div className="text-center mb-10">
-        <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-          <svg className="w-9 h-9 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C12.083 10.77 8.07 15.61 3 18.129" />
-          </svg>
-        </div>
-        <h1 className="text-2xl font-semibold text-gray-100">SRT Translator</h1>
-        <p className="text-gray-500 mt-1">Extract movie subtitles, then translate English → natural spoken Sinhala</p>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 w-full max-w-3xl">
-        {/* Card 1: translate directly */}
-        <button
-          onClick={onOpenTranslator}
-          className="group p-6 rounded-2xl border border-gray-800 bg-gray-900/40 hover:border-gray-700 hover:bg-gray-900 text-left transition-colors"
-        >
-          <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-4 bg-gray-800 group-hover:bg-blue-600/20">
-            <svg className="w-6 h-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.7} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-            </svg>
+      <div className="grid min-h-full place-items-center px-8 py-10">
+        <div className="w-full max-w-[34rem]">
+          {/* Identity — the only centred block; everything below is a control. */}
+          <div className="flex flex-col items-center text-center">
+            <span className="grid h-11 w-11 place-items-center rounded-xl bg-teal text-white">
+              <IconMessageSquareText size={24} />
+            </span>
+            <h1 className="mt-4 text-title font-bold text-text">Translate subtitles into Sinhala</h1>
+            <p className="mt-2 max-w-[27rem] text-md leading-relaxed text-text-muted">
+              Drop subtitles in any language. Get back Sinhala — timings, drama and all.
+            </p>
           </div>
-          <h2 className="text-base font-semibold text-gray-100">Translate a Subtitle (.srt)</h2>
-          <p className="text-sm text-gray-500 mt-1">Load an existing subtitle file and translate it to Sinhala.</p>
-        </button>
 
-        {/* Card 2: extract from movie */}
-        <button
-          onClick={() => void openMkv()}
-          disabled={phase === 'extracting'}
-          className="group p-6 rounded-2xl border border-gray-800 bg-gray-900/40 hover:border-gray-700 hover:bg-gray-900 text-left transition-colors disabled:opacity-60"
-        >
-          <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-4 bg-gray-800 group-hover:bg-blue-600/20">
-            <svg className="w-6 h-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.7} d="M7 4h8l3 3v13H7V4zM10 4v3h5M10 12h6m-6 4h6" />
-            </svg>
-          </div>
-          <h2 className="text-base font-semibold text-gray-100">
-            Extract Subtitles from a Movie (.mkv)
-          </h2>
-          <p className="text-sm text-gray-500 mt-1">
-            Pick a subtitle track from an MKV and load it straight into the translator.
-          </p>
-        </button>
-      </div>
+          {/* The one entry point: drop a file here, or click to browse. The
+              click actually opens the picker now, so the label is truthful. */}
+          <button
+            onClick={() => void browse()}
+            disabled={browsing}
+            className={`mt-6 w-full rounded-xl px-6 py-7 text-center transition-colors duration-150 disabled:opacity-70 ${
+              dragging
+                ? 'border-2 border-dashed border-teal bg-teal-soft'
+                : 'border border-dashed border-border-strong bg-surface hover:border-teal hover:bg-teal-soft'
+            }`}
+          >
+            <span className={`grid place-items-center ${dragging ? 'text-teal-text' : 'text-text-muted'}`}>
+              <IconUpload size={26} />
+            </span>
 
-      <div className="mt-8 text-center">
-        <p className="text-xs text-gray-600">
-          {phase === 'extracting' ? 'Extracting subtitle track…' : 'or drag & drop an .mkv movie or an .srt file here'}
-        </p>
-      </div>
+            <span className="mt-3 block text-md font-semibold text-text">
+              {browsing
+                ? 'Opening…'
+                : dragging
+                  ? 'Drop to open'
+                  : 'Drop an .srt or .mkv file here'}
+            </span>
+            <span className="mt-1 block text-sm text-text-muted">or click to choose a file</span>
+          </button>
 
-      {error && (
-        <div className="mt-5 max-w-xl w-full px-4 py-3 rounded-lg bg-red-950/50 border border-red-800/60 text-red-300 text-sm text-center">
-          {error}
+          {error && (
+            <div className="mt-3 flex items-start gap-2 rounded-lg border border-danger bg-danger-bg px-3 py-2.5 fade-in">
+              <IconAlert size={14} className="mt-0.5 shrink-0 text-danger" />
+              <p className="text-sm leading-relaxed text-danger">{error}</p>
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
-      {/* Track picker modal */}
+      {/* Track picker */}
       {(phase === 'picking' || phase === 'extracting') && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black/70 z-50 p-6">
-          <div className="w-full max-w-lg bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
-              <div className="min-w-0">
-                <h3 className="text-base font-semibold text-gray-100 truncate">Choose a subtitle track</h3>
-                <p className="text-xs text-gray-500 truncate">{mkvName}</p>
-              </div>
-              <button onClick={closePicker} disabled={phase === 'extracting'} className="text-gray-500 hover:text-gray-300 disabled:opacity-40 p-1">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="max-h-72 overflow-y-auto p-2">
-              {tracks.length === 0 && (
-                <p className="text-sm text-gray-500 px-3 py-4 text-center">No subtitle tracks to list.</p>
-              )}
-              {tracks.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => t.isText && setSelectedId(t.id)}
-                  disabled={!t.isText || phase === 'extracting'}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left text-sm transition-colors ${
-                    selectedId === t.id
-                      ? 'bg-blue-600/20 border border-blue-600/50'
-                      : 'border border-transparent hover:bg-gray-800'
-                  } disabled:hover:bg-transparent`}
-                >
-                  <span className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${selectedId === t.id ? 'border-blue-500' : 'border-gray-600'}`}>
-                    {selectedId === t.id && <span className="w-2 h-2 rounded-full bg-blue-500" />}
-                  </span>
-                  <span className="flex-1 min-w-0">
-                    <span className={t.isText ? 'text-gray-200' : 'text-gray-500'}>
-                      {t.isText ? t.codec : `${t.codec} — not translatable`}
+        <Modal onClose={closePicker} width={28}>
+          <ModalHeader title="Choose a subtitle track" subtitle={mkvName} onClose={closePicker} />
+
+          <div className="max-h-[55vh] overflow-y-auto p-2">
+            {tracks.length === 0 && (
+              <p className="px-3 py-6 text-center text-base text-text-muted">
+                No subtitle tracks to list.
+              </p>
+            )}
+
+            <div className="space-y-0.5">
+              {tracks.map((t) => {
+                const selected = selectedId === t.id
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => t.isText && setSelectedId(t.id)}
+                    disabled={!t.isText || phase === 'extracting'}
+                    className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors ${
+                      selected
+                        ? 'bg-teal-soft'
+                        : t.isText
+                          ? 'hover:bg-surface-alt'
+                          : 'cursor-not-allowed opacity-45'
+                    }`}
+                  >
+                    <span
+                      className={`grid h-3.5 w-3.5 shrink-0 place-items-center rounded-full border ${
+                        selected ? 'border-teal' : 'border-border-strong'
+                      }`}
+                    >
+                      {selected && <span className="h-1.5 w-1.5 rounded-full bg-teal" />}
                     </span>
-                    <span className="block text-xs text-gray-500">{languageLabel(t)}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-            <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-800">
-              <button
-                onClick={closePicker}
-                disabled={phase === 'extracting'}
-                className="px-4 py-2 rounded-lg text-sm text-gray-300 border border-gray-700 hover:bg-gray-800 disabled:opacity-40"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => void extractSelected()}
-                disabled={selectedId == null || phase === 'extracting'}
-                className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500"
-              >
-                {phase === 'extracting' ? 'Extracting…' : 'Extract & Translate'}
-              </button>
+
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2">
+                        <span className="text-base text-text">{t.codec}</span>
+                        {!t.isText && <span className="pill pill-warn">needs OCR</span>}
+                      </span>
+                      <span className="mt-0.5 block truncate text-micro text-text-muted">
+                        {languageLabel(t)}
+                      </span>
+                    </span>
+                  </button>
+                )
+              })}
             </div>
           </div>
-        </div>
+
+          <ModalFooter>
+            <button onClick={closePicker} disabled={phase === 'extracting'} className="btn btn-secondary">
+              Cancel
+            </button>
+            <button
+              onClick={() => void extractSelected()}
+              disabled={selectedId == null || phase === 'extracting'}
+              className="btn btn-primary"
+            >
+              {phase === 'extracting' ? 'Extracting…' : 'Extract & translate'}
+            </button>
+          </ModalFooter>
+        </Modal>
       )}
     </div>
   )

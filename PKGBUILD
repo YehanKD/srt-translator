@@ -2,7 +2,7 @@
 pkgname=srt-translator
 pkgver=2.0.0
 pkgrel=1
-pkgdesc="AI-powered English to Sinhala SRT subtitle translator (Electron desktop app)"
+pkgdesc="AI-powered subtitle translator: any language into natural spoken Sinhala (Electron desktop app)"
 arch=('x86_64')
 url="https://github.com/YehanKD/srt-translator"
 license=('MIT')
@@ -13,7 +13,7 @@ optdepends=(
 options=('!strip')
 _appimage="SRT.Translator-${pkgver}.AppImage"
 source=("${url}/releases/download/v${pkgver}/${_appimage}")
-sha256sums=('d1cd3e9219bd2877d5f580ad8cca99d87ddc34ab54fcbc5b0cd4bfcc2810d450')
+sha256sums=('7907c640552eba8a2f6f4a1dce87b48d82030a48428996982b654314b511d15e')
 
 prepare() {
   chmod +x "${srcdir}/${_appimage}"

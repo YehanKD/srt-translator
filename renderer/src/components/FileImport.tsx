@@ -7,17 +7,38 @@ interface Props {
   disabled: boolean
 }
 
+/**
+ * Drop zone inside a translation tab. The drag highlight is driven by a depth
+ * counter rather than enter/leave booleans, because dragging over a child
+ * element fires leave on the parent and would otherwise flicker.
+ */
 export function FileImport({ onImport, onMkvDropped, disabled }: Props) {
   const [dragging, setDragging] = useState(false)
   const [dropError, setDropError] = useState('')
+  const [browsing, setBrowsing] = useState(false)
   const dragDepth = useRef(0)
 
   const handleBrowse = useCallback(async () => {
-    const result = await window.electronAPI.importSrt()
-    if (result.success && result.data) {
-      onImport(result.data.entries, result.data.fileName)
+    setDropError('')
+    setBrowsing(true)
+    try {
+      const res = await window.electronAPI.pickInput()
+      if (!res.success) {
+        setDropError(res.error || 'Could not open that file.')
+        return
+      }
+      const picked = res.data
+      if (!picked) return // cancelled
+
+      if (picked.kind === 'mkv') {
+        onMkvDropped?.(picked.mkvPath!)
+        return
+      }
+      if (picked.result) onImport(picked.result.entries, picked.result.fileName)
+    } finally {
+      setBrowsing(false)
     }
-  }, [onImport])
+  }, [onImport, onMkvDropped])
 
   const handleDrop = useCallback(
     async (e: React.DragEvent) => {
@@ -37,7 +58,7 @@ export function FileImport({ onImport, onMkvDropped, disabled }: Props) {
         return
       }
       if (!lower.endsWith('.srt')) {
-        setDropError('Drop an .srt subtitle file or an .mkv movie.')
+        setDropError('That file type isn’t supported — drop an .srt subtitle or an .mkv movie.')
         return
       }
 
@@ -77,23 +98,42 @@ export function FileImport({ onImport, onMkvDropped, disabled }: Props) {
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
-      className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
-        dragging ? 'border-blue-500 bg-blue-950/30' : 'border-gray-700 hover:border-gray-600'
+      className={`rounded-lg px-5 py-7 text-center transition-colors ${
+        dragging
+          ? 'border border-dashed border-teal bg-teal-soft'
+          : 'border border-dashed border-border-strong bg-surface'
       }`}
     >
-      <div className="text-4xl mb-3 opacity-30">
-        <svg className="w-12 h-12 mx-auto text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-        </svg>
-      </div>
-      <p className="text-gray-400 text-sm mb-3">Drop an .srt or .mkv file here or click to browse</p>
-      {dropError && <p className="text-xs text-red-400 mb-3">{dropError}</p>}
-      <button
-        onClick={handleBrowse}
-        disabled={disabled}
-        className="bg-gray-800 hover:bg-gray-700 disabled:bg-gray-800 disabled:text-gray-600 text-gray-200 text-sm font-medium py-2 px-5 rounded-lg border border-gray-700 transition-colors"
+      <svg
+        width="22"
+        height="22"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={`mx-auto transition-colors ${
+          dragging ? 'text-teal-text' : 'text-text-muted'
+        }`}
       >
-        Browse Files
+        <path d="M12 16V4m0 0L8 8m4-4l4 4" />
+        <path d="M3 15v3a2 2 0 002 2h14a2 2 0 002-2v-3" />
+      </svg>
+
+      <p className="mt-3 text-base text-text-body">
+        {dragging ? 'Drop to open' : 'Drop an .srt or .mkv file here'}
+      </p>
+      <p className="mt-1 text-micro text-text-muted">
+        or choose a file below
+      </p>
+
+      {dropError && (
+        <p className="mt-2 text-micro text-danger">{dropError}</p>
+      )}
+
+      <button onClick={handleBrowse} disabled={disabled || browsing} className="btn btn-secondary mt-3">
+        {browsing ? 'Opening…' : 'Choose file'}
       </button>
     </div>
   )

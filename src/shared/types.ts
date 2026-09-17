@@ -26,9 +26,20 @@ export interface TranslationProgress {
   errorMessage?: string
   partialResult?: SubtitleEntry[]
   activeChunks?: number
+  /**
+   * Cues actually translated so far, and the job's total cue count.
+   *
+   * `partialResult` is always full length (untranslated chunks are padded with
+   * their originals so the table can render), so its length is NOT a progress
+   * figure. These two are the honest numbers.
+   */
+  translatedCues?: number
+  totalCues?: number
 }
 
 export interface TranslationComplete {
+  /** True when the user cancelled — a deliberate stop, not a failure. */
+  cancelled?: boolean
   jobId: string
   success: boolean
   data?: SubtitleEntry[]
@@ -54,6 +65,19 @@ export interface ImportResult {
   filePath: string
   fileName: string
   entries: SubtitleEntry[]
+}
+
+/**
+ * Result of the combined open dialog. A .mkv isn't parsed here — the renderer
+ * routes it to the track picker, so `entries` is only populated for subtitles.
+ */
+export interface PickedInput {
+  kind: 'srt' | 'mkv'
+  /** Present when kind === 'srt'. */
+  result?: ImportResult
+  /** Present when kind === 'mkv' — the path to extract a track from. */
+  mkvPath?: string
+  fileName: string
 }
 
 export interface MkvSubtitleTrack {
@@ -160,7 +184,8 @@ export interface ElectronAPI {
   refreshQuota: () => Promise<IpcResponse<QuotaSummary>>
   listModels: () => Promise<IpcResponse<AntigravityModel[]>>
   // Files
-  importSrt: () => Promise<IpcResponse<ImportResult>>
+  /** Combined picker: accepts .srt and .mkv, classified by extension. */
+  pickInput: () => Promise<IpcResponse<PickedInput | null>>
   importSrtFromPath: (filePath: string) => Promise<IpcResponse<ImportResult>>
   exportSrt: (entries: SubtitleEntry[], suggestedName: string) => Promise<IpcResponse<string>>
   selectMkv: () => Promise<IpcResponse<string | null>>

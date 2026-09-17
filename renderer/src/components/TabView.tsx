@@ -1,16 +1,16 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { FileImport } from './FileImport'
 import { SubtitlePreview } from './SubtitlePreview'
-import { TranslationProgress } from './TranslationProgress'
-import { ExportButton } from './ExportButton'
+import { Switch } from './Switch'
+import { JobStrip } from './JobStrip'
 import { useTranslation } from '../hooks/useTranslation'
+import { IconGlobe, IconFilePlus, IconTrash } from './Icons'
 import type { SubtitleEntry, ApiSettings } from '@shared/types'
 
 export interface TabViewInfo {
   title: string
   translating: boolean
   percent: number | null
-  subtitleCount: number
 }
 
 interface Props {
@@ -59,7 +59,7 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
   const [removeSpeakerNames, setRemoveSpeakerNames] = useState(false)
   const [blurred, setBlurred] = useState<boolean>(loadBlurDefault)
 
-  const { translating, progress, translatedEntries, error, incomplete, startTranslation, cancelTranslation, reset } =
+  const { translating, progress, translatedEntries, error, incomplete, cancelled, startTranslation, cancelTranslation, reset } =
     useTranslation(tabId)
 
   const percent = progress
@@ -75,8 +75,7 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
     onTabInfoChange(tabId, {
       title: sourceFileName || defaultTitle,
       translating,
-      percent,
-      subtitleCount: effectiveEntries?.length ?? 0
+      percent
     })
   }, [tabId, sourceFileName, defaultTitle, translating, percent, effectiveEntries, onTabInfoChange])
 
@@ -123,112 +122,98 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
     reset()
   }, [sourceEntries, reset])
 
-  const canTranslate = sourceEntries && settings.modelId && !translating
+  const canTranslate = Boolean(sourceEntries && settings.modelId && !translating)
 
   return (
-    <div className={isActive ? 'space-y-4' : 'hidden'}>
-      {sourceEntries && (
-        <div className="flex gap-2 flex-wrap">
+    <div className={isActive ? 'flex h-full flex-col' : 'hidden'}>
+      {/* ── Workspace controls: actions left, view toggles right. ── */}
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-4 px-8 py-5">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={handleTranslate}
             disabled={!canTranslate}
-            className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-semibold py-2 px-4 rounded-lg transition-colors"
+            className="btn btn-primary"
           >
-            {translating ? 'Translating...' : 'Translate'}
+            <IconGlobe size={16} />
+            {translating ? 'Translating…' : 'Translate File'}
           </button>
-          <button
-            onClick={handleNewFile}
-            disabled={translating}
-            className="bg-gray-800 hover:bg-gray-700 disabled:bg-gray-800 disabled:text-gray-600 text-gray-300 text-sm font-medium py-2 px-4 rounded-lg border border-gray-700 transition-colors"
-          >
-            Import New File
+
+          <button onClick={handleNewFile} disabled={translating} className="btn btn-secondary">
+            <IconFilePlus size={16} />
+            New File
           </button>
+
           <button
             onClick={handleRemoveSoundLines}
             disabled={translating || !canTranslate}
-            title="Remove subtitles that are only background sounds, e.g. (ALARM BLARING) or [GUARDS YELLING]"
-            className="bg-gray-800 hover:bg-gray-700 disabled:bg-gray-800 disabled:text-gray-600 text-gray-300 text-sm font-medium py-2 px-4 rounded-lg border border-gray-700 transition-colors"
+            title="Drop cues that are only background sounds, e.g. (ALARM BLARING) or [GUARDS YELLING]"
+            className="btn btn-secondary"
           >
-            Remove Sound Lines
+            <IconTrash size={16} />
+            Remove Sound Cues
           </button>
-          <label
-            className={`flex items-center gap-2 cursor-pointer select-none text-sm text-gray-300 ${
-              translating ? 'opacity-50' : ''
-            }`}
-          >
-            <button
-              type="button"
-              role="switch"
-              aria-checked={removeSpeakerNames}
-              onClick={toggleSpeakerNames}
-              disabled={translating}
-              title="Remove speaker names like CHOW: / ALAN:"
-              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed ${
-                removeSpeakerNames ? 'bg-amber-500' : 'bg-gray-700'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                  removeSpeakerNames ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
-            Remove Speaker Name
-          </label>
-
-          <label
-            className={`flex items-center gap-2 cursor-pointer select-none text-sm text-gray-300 ${
-              translating ? 'opacity-50' : ''
-            }`}
-          >
-            <button
-              type="button"
-              role="switch"
-              aria-checked={blurred}
-              onClick={() => setBlurred(!blurred)}
-              disabled={translating}
-              title="Blur the English & Sinhala preview so you can't accidentally read ahead (anti-spoiler)"
-              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed ${
-                blurred ? 'bg-amber-500' : 'bg-gray-700'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                  blurred ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
-            Blur Preview
-          </label>
         </div>
-      )}
 
-      {removedSoundCount > 0 && sourceEntries && (
-        <p className="text-xs text-amber-400/90">
-          Removed {removedSoundCount} background sound line{removedSoundCount === 1 ? '' : 's'} (non-dialogue cues). Translation will skip them.
-        </p>
-      )}
+        <div className="flex items-center gap-6">
+          <Switch
+            checked={removeSpeakerNames}
+            onChange={toggleSpeakerNames}
+            disabled={translating}
+            label="Strip speaker names"
+            title="Remove speaker tags like CHOW: / ALAN:"
+          />
 
-      {!sourceEntries && (
-        <FileImport onImport={handleImport} onMkvDropped={onMkvDropped} disabled={translating} />
-      )}
+          {/* Deliberately NOT disabled while translating: blur is a view
+              setting, so it stays live throughout the job. */}
+          <Switch
+            checked={blurred}
+            onChange={setBlurred}
+            label="Blur preview"
+            title="Hide the source and Sinhala text so you can't read ahead"
+          />
+        </div>
+      </div>
 
-      {sourceEntries && (
-        <SubtitlePreview
-          source={effectiveEntries ?? []}
-          translated={translatedEntries}
-          fileName={sourceFileName}
-          isTranslating={translating}
-          blurred={blurred}
-          incomplete={incomplete}
-        />
-      )}
+      {/* ── Content ── */}
+      <div className="flex-1 overflow-y-auto px-8 pb-6">
+        <div className="space-y-3">
+          {removedSoundCount > 0 && sourceEntries && (
+            <p className="text-sm text-warn-text">
+              Removed {removedSoundCount} background sound line{removedSoundCount === 1 ? '' : 's'} —
+              they won't be translated.
+            </p>
+          )}
 
-      <TranslationProgress progress={progress} onCancel={cancelTranslation} error={error} incomplete={incomplete} />
+          {!sourceEntries && (
+            <FileImport onImport={handleImport} onMkvDropped={onMkvDropped} disabled={translating} />
+          )}
 
-      {translatedEntries && (
-        <ExportButton entries={translatedEntries} sourceFileName={sourceFileName} incomplete={incomplete} />
-      )}
+          {sourceEntries && (
+            <SubtitlePreview
+              source={effectiveEntries ?? []}
+              translated={translatedEntries}
+              fileName={sourceFileName}
+              isTranslating={translating}
+              blurred={blurred}
+              incomplete={incomplete}
+              translatedCues={progress?.translatedCues}
+              totalCues={progress?.totalCues}
+            />
+          )}
+
+          {/* One strip for the whole job lifecycle: progress while working,
+              then the export action when there's something to save. */}
+          <JobStrip
+            progress={progress}
+            error={error}
+            incomplete={incomplete}
+            cancelled={cancelled}
+            entries={translatedEntries}
+            sourceFileName={sourceFileName}
+            onCancel={cancelTranslation}
+          />
+        </div>
+      </div>
     </div>
   )
 }

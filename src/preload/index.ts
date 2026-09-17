@@ -37,7 +37,7 @@ const electronAPI: ElectronAPI = {
   listModels: () => ipcRenderer.invoke(IPC_CHANNELS.LIST_MODELS),
 
   // ─── Files ────────────────────────────────────────────────────────────
-  importSrt: () => ipcRenderer.invoke(IPC_CHANNELS.IMPORT_SRT),
+  pickInput: () => ipcRenderer.invoke(IPC_CHANNELS.IMPORT_SRT),
   importSrtFromPath: (filePath: string) => ipcRenderer.invoke(IPC_CHANNELS.IMPORT_SRT_PATH, filePath),
   exportSrt: (entries: SubtitleEntry[], suggestedName: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.EXPORT_SRT, entries, suggestedName),

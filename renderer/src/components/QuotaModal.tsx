@@ -1,4 +1,7 @@
+import { useState } from 'react'
 import type { QuotaSummary } from '@shared/types'
+import { Modal, ModalHeader } from './Modal'
+import { meterColor } from '../lib/quota'
 
 interface Props {
   quota: QuotaSummary
@@ -6,144 +9,192 @@ interface Props {
   onRefresh: () => void
 }
 
-function formatResetTime(resetAt: string | null): string {
+/** Relative reset time — "in 4h 12m" reads faster than a wall-clock date. */
+function formatReset(resetAt: string | null): string {
   if (!resetAt) return '—'
-  try {
-    const d = new Date(resetAt)
-    return d.toLocaleString()
-  } catch {
-    return resetAt
-  }
+  const ms = new Date(resetAt).getTime() - Date.now()
+  if (!Number.isFinite(ms)) return '—'
+  if (ms <= 0) return 'now'
+  const mins = Math.round(ms / 60000)
+  const d = Math.floor(mins / 1440)
+  const h = Math.floor((mins % 1440) / 60)
+  const m = mins % 60
+  if (d > 0) return `in ${d}d ${h}h`
+  if (h > 0) return `in ${h}h ${m}m`
+  return `in ${m}m`
+}
+
+/** One quota row: name, percentage, precise meter, and reset time. */
+function QuotaRow({
+  label,
+  percentage,
+  unlimited,
+  resetAt,
+  meta
+}: {
+  label: string
+  percentage: number
+  unlimited: boolean
+  resetAt: string | null
+  meta?: string
+}) {
+  const pct = unlimited ? 100 : Math.max(0, Math.min(100, percentage))
+  return (
+    <div className="px-3 py-2.5">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="min-w-0 truncate text-base text-text-body">
+          {label}
+        </span>
+        <span className="nums shrink-0 text-micro text-text-muted">
+          {unlimited ? 'Unlimited' : `${Math.round(percentage)}% left`}
+        </span>
+      </div>
+
+      <div className="meter mt-2">
+        <div
+          className="meter-fill"
+          style={{ width: `${pct}%`, background: unlimited ? 'var(--t-teal)' : meterColor(pct) }}
+        />
+      </div>
+
+      <div className="mt-1.5 flex items-center justify-between gap-3 text-micro text-text-muted">
+        <span className="truncate">{meta}</span>
+        <span className="nums shrink-0">{formatReset(resetAt)}</span>
+      </div>
+    </div>
+  )
 }
 
 export function QuotaModal({ quota, onClose, onRefresh }: Props) {
-  // Google exposes both a rolling 5-hour window and a weekly one per model
-  // group, but only the plan-appropriate one is meaningful: a paid plan's
-  // limit resets every 5 hours, while a free plan's resets weekly. Showing
-  // both (or always picking weekly) is what made Pro accounts display a
-  // reset days away. Mirrors how Omniroute presents it.
+  const [refreshing, setRefreshing] = useState(false)
+
+  // Google returns both a rolling 5-hour window and a weekly one per model
+  // group, but only the plan-appropriate one is meaningful: a paid plan's limit
+  // resets every 5 hours, a free plan's resets weekly. Showing both (or always
+  // picking weekly) made Pro accounts display a reset days away.
   const planLabel = (quota.plan || '').trim()
-  // Unknown/empty plan counts as free: show the weekly window rather than
-  // implying a 5-hour reset the account may not have.
+  // Unknown/empty plan counts as free, so we never imply a 5-hour reset the
+  // account may not have.
   const isPaidPlan = planLabel.length > 0 && !/^free$/i.test(planLabel)
   const preferred = isPaidPlan ? '5h' : 'weekly'
-  const groupLimits = (() => {
-    const all = quota.weekly ?? []
-    const pick = all.filter((w) => w.window === preferred)
-    return pick.length > 0 ? pick : all
-  })()
+  const allLimits = quota.weekly ?? []
+  const picked = allLimits.filter((w) => w.window === preferred)
+  const groupLimits = picked.length > 0 ? picked : allLimits
+
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    try {
+      await onRefresh()
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-black/70 z-50 p-4">
-      <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800">
-          <div>
-            <h3 className="text-base font-semibold text-gray-100">Quota Details</h3>
-            <p className="text-xs text-gray-500">Plan: {quota.plan || 'Free'}</p>
+    <Modal onClose={onClose} width={30}>
+      <ModalHeader
+        title="Quota"
+        onClose={onClose}
+        subtitle={
+          <span className="flex items-center gap-2">
+            <span className={`chip ${isPaidPlan ? 'chip-accent' : ''}`}>{planLabel || 'Free'}</span>
+            <span className="text-text-muted">
+              {isPaidPlan ? '5-hour window' : 'weekly window'}
+            </span>
+          </span>
+        }
+      />
+
+      <div className="max-h-[65vh] overflow-y-auto">
+        {/* Google One AI credits, when the account reports them */}
+        {quota.credits !== null && quota.credits !== undefined && (
+          <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
+            <span className="text-base text-text-body">
+              Google One AI credits
+            </span>
+            <span className="nums text-base font-[590] text-text">
+              {quota.credits}
+            </span>
           </div>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 p-1">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
+        )}
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          <div className="flex justify-end">
-            <button
-              onClick={onRefresh}
-              className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
-            >
-              ↻ Refresh
-            </button>
+        {/* Per-model */}
+        {quota.models.length > 0 && (
+          <section>
+            <div className="flex items-center justify-between px-3 pt-3 pb-1.5">
+              <h4 className="eyebrow">Per model</h4>
+              <button
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="btn btn-ghost !h-5 !px-1.5 !text-micro"
+              >
+                <svg
+                  width="11"
+                  height="11"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className={refreshing ? 'animate-spin' : ''}
+                >
+                  <path d="M21 12a9 9 0 11-2.6-6.4M21 3v6h-6" />
+                </svg>
+                Refresh
+              </button>
+            </div>
+            <div className="divide-y divide-border">
+              {quota.models.map((m) => (
+                <QuotaRow
+                  key={m.id}
+                  label={m.name}
+                  percentage={m.remainingPercentage}
+                  unlimited={m.unlimited}
+                  resetAt={m.resetAt}
+                  meta={`${m.used} / ${m.unlimited ? '∞' : m.total} used`}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Group rate limits */}
+        {groupLimits.length > 0 && (
+          <section className="border-t border-border">
+            <div className="px-3 pt-3 pb-1.5">
+              <h4 className="eyebrow">Shared limits</h4>
+            </div>
+            <div className="divide-y divide-border">
+              {groupLimits.map((w) => (
+                <QuotaRow
+                  key={w.key}
+                  label={w.displayName || w.key}
+                  percentage={w.remainingPercentage}
+                  unlimited={w.unlimited}
+                  resetAt={w.resetAt}
+                  meta={w.window === '5h' ? '5-hour limit' : 'weekly limit'}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {quota.models.length === 0 && groupLimits.length === 0 && (
+          <div className="px-3 py-8 text-center text-base text-text-muted">
+            No quota reported for this account.
           </div>
-
-          {quota.credits !== null && quota.credits !== undefined && (
-            <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-300">Google One AI Credits</span>
-                <span className="text-sm font-semibold text-gray-100">{quota.credits}</span>
-              </div>
-            </div>
-          )}
-
-          {quota.models.length > 0 && (
-            <div>
-              <h4 className="text-sm font-medium text-gray-400 mb-3">Per-Model Quota</h4>
-              <div className="space-y-2">
-                {quota.models.map((m) => (
-                  <div key={m.id} className="bg-gray-800/30 rounded-lg p-3 border border-gray-700/50">
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="text-sm text-gray-200">{m.name}</span>
-                      <span className="text-xs text-gray-500">
-                        {m.unlimited ? 'Unlimited' : `${Math.round(m.remainingPercentage)}%`}
-                      </span>
-                    </div>
-                    <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all ${
-                          m.remainingPercentage < 10 ? 'bg-red-500' :
-                          m.remainingPercentage < 30 ? 'bg-yellow-500' :
-                          'bg-blue-500'
-                        }`}
-                        style={{ width: `${Math.max(0, m.remainingPercentage)}%` }}
-                      />
-                    </div>
-                    <div className="flex justify-between mt-1 text-xs text-gray-500">
-                      <span>Used: {m.used}</span>
-                      <span>Total: {m.unlimited ? '∞' : m.total}</span>
-                      <span>Resets: {formatResetTime(m.resetAt)}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {groupLimits.length > 0 && (
-            <div>
-              <h4 className="text-sm font-medium text-gray-400 mb-3">
-                Rate Limits
-                <span className="text-gray-600 font-normal">
-                  {' · '}
-                  {isPaidPlan ? '5-hour window' : 'weekly window'}
-                </span>
-              </h4>
-              <div className="space-y-2">
-                {groupLimits.map((w) => (
-                  <div key={w.key} className="bg-gray-800/30 rounded-lg p-3 border border-gray-700/50">
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="text-sm text-gray-200">{w.displayName || w.key}</span>
-                      <span className="text-xs text-gray-500">
-                        {w.unlimited ? 'Unlimited' : `${Math.round(w.remainingPercentage)}%`}
-                      </span>
-                    </div>
-                    <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all ${
-                          w.remainingPercentage < 10 ? 'bg-red-500' :
-                          w.remainingPercentage < 30 ? 'bg-yellow-500' :
-                          'bg-purple-500'
-                        }`}
-                        style={{ width: `${Math.max(0, w.remainingPercentage)}%` }}
-                      />
-                    </div>
-                    <div className="flex justify-between mt-1 text-xs text-gray-500">
-                      <span>Used: {w.used}</span>
-                      <span>Total: {w.unlimited ? '∞' : w.total}</span>
-                      <span>Resets: {formatResetTime(w.resetAt)}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="text-xs text-gray-600 text-center">
-            Fetched: {new Date(quota.fetchedAt).toLocaleString()}
-          </div>
-        </div>
+        )}
       </div>
-    </div>
+
+      <div className="flex items-center justify-between px-3 py-2 border-t border-border">
+        <span className="nums text-micro text-text-muted">
+          Updated {new Date(quota.fetchedAt).toLocaleTimeString()}
+        </span>
+        <button onClick={onClose} className="btn btn-secondary">
+          Done
+        </button>
+      </div>
+    </Modal>
   )
 }

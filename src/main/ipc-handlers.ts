@@ -3,7 +3,7 @@ import { IPC_CHANNELS } from '@shared/constants'
 import type { SubtitleEntry, ApiSettings, IpcResponse, AuthProgress, AccountStatus, QuotaSummary } from '@shared/types'
 import { readFile } from 'fs/promises'
 import { basename } from 'path'
-import { importSrtFile, exportSrtFile, selectMkvFile } from './modules/file-io'
+import { pickInputFile, readSrtFile, exportSrtFile, selectMkvFile } from './modules/file-io'
 import { parseSrt, serializeSrt } from './modules/srt-parser'
 import { translateAll, TranslationIncompleteError } from './modules/translation-engine'
 
@@ -24,6 +24,41 @@ import { pickChatModels, ANTIGRAVITY_PUBLIC_MODELS, ANTIGRAVITY_DEFAULT_MODEL_ID
 const jobs = new Map<string, AbortController>()
 let authListener: ReturnType<typeof startOAuthListener> | null = null
 let authTimeout: NodeJS.Timeout | null = null
+
+/**
+ * Turn a thrown error into something a person can act on.
+ *
+ * Raw `err.message` leaks Node internals straight into the UI — an empty-path
+ * drop surfaced as "ENOENT: no such file or directory, open ''". Users can't
+ * act on that, and it makes the app look broken. Map the cases that actually
+ * happen to plain language; keep the original for the console.
+ */
+function friendlyError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err)
+  const code = (err as NodeJS.ErrnoException)?.code
+
+  if (code === 'ENOENT' || /ENOENT/.test(raw)) {
+    return 'That file could not be found. It may have been moved, renamed, or deleted.'
+  }
+  if (code === 'EACCES' || code === 'EPERM' || /EACCES|EPERM/.test(raw)) {
+    return 'Permission denied. Try a different location, or run the app with more access.'
+  }
+  if (code === 'EISDIR' || /EISDIR/.test(raw)) {
+    return 'That is a folder, not a file. Pick a subtitle file instead.'
+  }
+  if (code === 'ENOSPC' || /ENOSPC/.test(raw)) {
+    return 'There is no space left on the disk.'
+  }
+  if (/Unexpected end of|Invalid SRT|missing timecode|no cues/i.test(raw)) {
+    return 'That subtitle file could not be read. It may be corrupted or not a valid .srt.'
+  }
+  if (/aborted|AbortError/i.test(raw)) {
+    return 'Cancelled.'
+  }
+
+  console.error('[srt-translator] unhandled error:', err)
+  return raw || 'Something went wrong. Please try again.'
+}
 
 function clearAuthTimeout(): void {
   if (authTimeout) {
@@ -149,7 +184,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
         authListener.close()
         authListener = null
       }
-      const errorMsg = err instanceof Error ? err.message : String(err)
+      const errorMsg = friendlyError(err)
       emitAuthProgress(window, { phase: 'error', message: errorMsg })
       return { success: false, error: errorMsg }
     }
@@ -256,7 +291,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
         }
       }
     } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : String(err) }
+      return { success: false, error: friendlyError(err) }
     }
   }
 
@@ -305,12 +340,30 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
 
   ipcMain.handle(IPC_CHANNELS.IMPORT_SRT, async (): Promise<IpcResponse> => {
     try {
-      const result = await importSrtFile()
-      if (!result) return { success: true, data: null }
-      const entries = parseSrt(result.content)
-      return { success: true, data: { filePath: result.filePath, fileName: result.fileName, entries } }
+      const picked = await pickInputFile()
+      if (!picked) return { success: true, data: null }
+
+      // A movie isn't parsed here — hand the path back so the renderer opens
+      // its track picker, which is the only meaningful next step for an .mkv.
+      if (picked.kind === 'mkv') {
+        return {
+          success: true,
+          data: { kind: 'mkv', mkvPath: picked.filePath, fileName: picked.fileName }
+        }
+      }
+
+      const content = await readSrtFile(picked.filePath)
+      const entries = parseSrt(content)
+      return {
+        success: true,
+        data: {
+          kind: 'srt',
+          fileName: picked.fileName,
+          result: { filePath: picked.filePath, fileName: picked.fileName, entries }
+        }
+      }
     } catch (err: unknown) {
-      return { success: false, error: err instanceof Error ? err.message : String(err) }
+      return { success: false, error: friendlyError(err) }
     }
   })
 
@@ -320,7 +373,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
       const savedPath = await exportSrtFile(content, suggestedName)
       return { success: true, data: savedPath }
     } catch (err: unknown) {
-      return { success: false, error: err instanceof Error ? err.message : String(err) }
+      return { success: false, error: friendlyError(err) }
     }
   })
 
@@ -330,7 +383,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
       const entries = parseSrt(content)
       return { success: true, data: { filePath, fileName: basename(filePath), entries } }
     } catch (err: unknown) {
-      return { success: false, error: err instanceof Error ? err.message : String(err) }
+      return { success: false, error: friendlyError(err) }
     }
   })
 
@@ -339,7 +392,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
       const path = await selectMkvFile()
       return { success: true, data: path }
     } catch (err: unknown) {
-      return { success: false, error: err instanceof Error ? err.message : String(err) }
+      return { success: false, error: friendlyError(err) }
     }
   })
 
@@ -349,7 +402,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
       const tracks = await getMkvSubtitleTracks(mkvPath)
       return { success: true, data: tracks }
     } catch (err: unknown) {
-      return { success: false, error: err instanceof Error ? err.message : String(err) }
+      return { success: false, error: friendlyError(err) }
     }
   })
 
@@ -363,7 +416,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
       return { success: true, data: result }
     } catch (err: unknown) {
       const code = (err as Error & { code?: string }).code
-      const message = err instanceof Error ? err.message : String(err)
+      const message = friendlyError(err)
       return { success: false, error: message, data: code === 'IMAGE_SUBTITLE' ? { imageSubtitle: true } : undefined }
     }
   })
@@ -393,13 +446,33 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
       }
     } catch (err: unknown) {
       jobs.delete(jobId)
+
+      // A cancel is a deliberate user action, not a failure. The engine signals
+      // it by throwing AbortError; without this branch it fell into the generic
+      // error path and the UI reported "Failed" for something the user chose.
+      // Accept either signal: `name` is the convention, but checking the
+      // message too means an abort can never be misreported as a failure.
+      const aborted =
+        err instanceof Error &&
+        (err.name === 'AbortError' || /\bAbortError\b|cancelled/i.test(err.message))
+      if (aborted) {
+        if (window && !window.isDestroyed()) {
+          window.webContents.send(IPC_CHANNELS.TRANSLATION_COMPLETE, {
+            success: false,
+            cancelled: true,
+            jobId
+          })
+        }
+        return
+      }
+
       // A partially-complete job carries the chunks that DID translate, so the
       // user keeps that work but is clearly told the rest is untranslated.
       const incomplete = err instanceof TranslationIncompleteError ? err : null
       if (window && !window.isDestroyed()) {
         window.webContents.send(IPC_CHANNELS.TRANSLATION_COMPLETE, {
           success: false,
-          error: err instanceof Error ? err.message : String(err),
+          error: friendlyError(err),
           jobId,
           ...(incomplete
             ? {
@@ -424,7 +497,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
       }
       return { success: true }
     } catch (err: unknown) {
-      return { success: false, error: err instanceof Error ? err.message : String(err) }
+      return { success: false, error: friendlyError(err) }
     }
   })
 }

@@ -5,6 +5,21 @@ import { sendAntigravityWithFallback, AntigravityApiError, AntigravityModelError
 import type { AntigravityMessage } from './antigravity/transport'
 import { parseSrt, cleanAiResponse } from './srt-parser'
 
+/**
+ * Cancellation signal.
+ *
+ * `new Error('AbortError')` sets `message`, NOT `name` — so every
+ * `err.name === 'AbortError'` check downstream silently failed and a cancel was
+ * reported as a failure. This class sets `name` correctly so the abort is
+ * detectable by name, which is the convention the rest of the code expects.
+ */
+export class TranslationAbortError extends Error {
+  constructor() {
+    super('Translation cancelled')
+    this.name = 'AbortError'
+  }
+}
+
 function chunkArray<T>(array: T[], size: number): T[][] {
   const chunks: T[][] = []
   for (let i = 0; i < array.length; i += size) {
@@ -101,8 +116,32 @@ export async function translateAll(params: TranslateAllParams): Promise<Subtitle
     return out
   }
 
+  /**
+   * How many CUES are actually translated so far.
+   *
+   * `snapshot()` pads untranslated chunks with their original text so the table
+   * always has full-length data — which means its length can never be used as a
+   * progress figure (it reads as 100% on the first event). This counts only
+   * settled chunks, so the number is honest.
+   */
+  const totalCues = entries.length
+  const translatedCueCount = (): number => {
+    let done = 0
+    for (let i = 0; i < totalChunks; i++) {
+      const s = settled[i]
+      if (s) done += s.length
+    }
+    return done
+  }
+
   const emit = (p: Omit<TranslationProgress, 'jobId'>): void => {
-    onProgress({ jobId: '', ...p, activeChunks: inflight })
+    onProgress({
+      jobId: '',
+      ...p,
+      activeChunks: inflight,
+      translatedCues: translatedCueCount(),
+      totalCues
+    })
   }
 
   const translateChunk = async (i: number): Promise<{ translated: SubtitleEntry[]; saw429: boolean }> => {
@@ -136,7 +175,7 @@ export async function translateAll(params: TranslateAllParams): Promise<Subtitle
     const maxAttempts = 6
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      if (signal.aborted) throw new Error('AbortError')
+      if (signal.aborted) throw new TranslationAbortError()
 
       try {
         const response = await sendAntigravityWithFallback({
@@ -272,7 +311,7 @@ export async function translateAll(params: TranslateAllParams): Promise<Subtitle
   while (inflight > 0 && !signal.aborted) {
     await delay(40)
   }
-  if (signal.aborted) throw new Error('AbortError')
+  if (signal.aborted) throw new TranslationAbortError()
   // Deterministic failure (e.g. model not on this account) — surface it as a
   // job-level error so the UI shows why nothing was translated.
   if (fatalError) throw fatalError

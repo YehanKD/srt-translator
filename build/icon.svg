@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!--
+    App icon. Same construction as the in-app logo (App.tsx header): a teal
+    rounded square with the message-square-text glyph in white.
+
+    The in-app tile is 36px with an 8px radius and a 20px glyph. Those ratios
+    are preserved here at 1024px:
+      radius 8/36  -> 228
+      glyph  20/36 -> 569, centred with a stroke scaled from 1.75/20
+  -->
+  <rect width="1024" height="1024" rx="228" ry="228" fill="#0d9488"/>
+
+  <!-- message-square-text, drawn from the same paths as IconMessageSquareText -->
+  <g
+    transform="translate(227.5 227.5) scale(23.72)"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="1.75"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+    <path d="M8 8h8M8 12h5"/>
+  </g>
+</svg>

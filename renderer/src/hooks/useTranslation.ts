@@ -7,6 +7,9 @@ export interface OverallProgress {
   status: 'sending' | 'received' | 'error' | 'done'
   activeChunks: number
   errorMessage?: string
+  /** Honest cue-level progress. `partialResult.length` is always full length. */
+  translatedCues?: number
+  totalCues?: number
 }
 
 /** Set when a job finished with some chunks permanently failed. */
@@ -26,6 +29,9 @@ export function useTranslation(jobId: string) {
   const [translatedEntries, setTranslatedEntries] = useState<SubtitleEntry[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [incomplete, setIncomplete] = useState<IncompleteInfo | null>(null)
+  // True when the user stopped the job themselves. Distinct from `error`: a
+  // cancel is not a failure and must not be reported as one.
+  const [cancelled, setCancelled] = useState(false)
   const cleanupRefs = useRef<(() => void)[]>([])
   const completedChunksRef = useRef<Set<number>>(new Set())
 
@@ -39,6 +45,7 @@ export function useTranslation(jobId: string) {
     setTranslatedEntries(null)
     setError(null)
     setIncomplete(null)
+    setCancelled(false)
     completedChunksRef.current = new Set()
 
     // Clean up any previous listeners
@@ -57,7 +64,9 @@ export function useTranslation(jobId: string) {
         totalChunks: p.totalChunks,
         status: p.status,
         activeChunks: p.activeChunks ?? (p.status === 'sending' ? 1 : 0),
-        errorMessage: p.errorMessage
+        errorMessage: p.errorMessage,
+        translatedCues: p.translatedCues,
+        totalCues: p.totalCues
       })
 
       if (p.status === 'received' && p.partialResult && p.partialResult.length > 0) {
@@ -78,8 +87,17 @@ export function useTranslation(jobId: string) {
           completedChunks: prev?.totalChunks ?? 1,
           totalChunks: prev?.totalChunks ?? 1,
           status: 'done',
-          activeChunks: 0
+          activeChunks: 0,
+          translatedCues: prev?.totalCues ?? result.data?.length ?? 0,
+          totalCues: prev?.totalCues ?? result.data?.length ?? 0
         }))
+      } else if (result.cancelled) {
+        // Deliberate stop: keep whatever translated, report no error.
+        // Clearing `error` matters — a stale error string alongside the
+        // cancelled flag made the strip render "Failed" AND "Cancelled".
+        setError(null)
+        setCancelled(true)
+        setProgress((prev) => (prev ? { ...prev, status: 'done', activeChunks: 0 } : prev))
       } else {
         setError(result.error || 'Translation failed')
         // Some chunks succeeded before others gave up: keep the translated work
@@ -111,6 +129,7 @@ export function useTranslation(jobId: string) {
     setProgress(null)
     setError(null)
     setIncomplete(null)
+    setCancelled(false)
   }, [])
 
   return {
@@ -119,6 +138,7 @@ export function useTranslation(jobId: string) {
     translatedEntries,
     error,
     incomplete,
+    cancelled,
     startTranslation,
     cancelTranslation,
     reset

@@ -1,6 +1,6 @@
 # SRT Translator
 
-A desktop app that translates **English `.srt` subtitles into natural spoken Sinhala**, using Gemini models through your own Google account — no API key required.
+A desktop app that translates **subtitles in any language into natural spoken Sinhala**, using Gemini models through your own Google account — no API key required.
 
 Built with Electron + React 19 + TypeScript + Tailwind v4.
 
@@ -10,13 +10,14 @@ Built with Electron + React 19 + TypeScript + Tailwind v4.
 
 ## What it does
 
-- **Translate a subtitle file** — drop in an `.srt`, get Sinhala out.
+- **Translate a subtitle file** — drop in an `.srt`, get Sinhala out. The source language is detected by the model, so English, Hindi, Arabic, Tamil and others all work.
 - **Pull subtitles out of a movie** — pick an `.mkv`, choose a text subtitle track, and it extracts + loads it for translation (needs MKVToolNix).
 - **Batch translate with live preview** — chunks run in parallel with adaptive concurrency; the table fills in as results arrive.
 - **Multi-tab** — translate several files at once; each tab has its own job, progress and export.
-- **Anti-spoiler blur** — optionally blur both the English and Sinhala preview columns so you can't read ahead.
+- **Anti-spoiler blur** — toggle a blur over the preview columns so you can't read ahead. Works during translation too, and is switchable with an eye icon.
+- **Light / dark theme** — with a circular reveal animation expanding from the toggle button. Falls back to a colour crossfade where View Transitions aren't available, and to an instant swap when the OS asks for reduced motion.
 - **Subtitle cleanup** — strip speaker-name tags (`CHOW:`) and remove non-dialogue sound cues (`[ALARM BLARING]`).
-- **Quota view** — see per-model and weekly remaining quota for your account.
+- **Quota view** — see per-model and plan-appropriate remaining quota for your account (5-hour window on paid plans, weekly on free).
 
 ## Authentication
 
@@ -24,9 +25,15 @@ Sign in once with your Google account. The app uses the same public OAuth client
 
 Your session is remembered between launches: the refresh token is encrypted with your OS keyring via Electron's `safeStorage` (GNOME Keyring/KWallet on Linux, DPAPI on Windows, Keychain on macOS). Access tokens are never written to disk. If no keyring is available, nothing is persisted rather than storing a credential in plaintext.
 
-Sign out at any time from the account panel — this revokes the token with Google and deletes the stored credential.
+Sign out at any time from the account bar — this revokes the token with Google and deletes the stored credential.
 
 ## Install
+
+### Windows
+
+Download and run `SRT Translator Setup 2.0.0.exe` from [Releases](https://github.com/YehanKD/srt-translator/releases).
+
+The installer is not code-signed, so Windows SmartScreen may show *"Unknown publisher"* — choose **More info → Run anyway**.
 
 ### Arch Linux / Omarchy (AUR)
 
@@ -40,10 +47,6 @@ yay -S srt-translator
 chmod +x "SRT Translator-2.0.0.AppImage"
 ./"SRT Translator-2.0.0.AppImage"
 ```
-
-### Windows
-
-Download and run `SRT Translator Setup 2.0.0.exe` from [Releases](https://github.com/YehanKD/srt-translator/releases).
 
 ### Debian / Ubuntu
 
@@ -76,16 +79,25 @@ npm install
 
 npm run dev            # development
 npm run typecheck      # type-check main + renderer
-npm run package:linux  # AppImage + .deb  -> release/
-npm run package        # Windows NSIS installer
+npm run package:linux  # AppImage + .deb   -> release/
+npm run package        # Windows NSIS installer -> release/
 ```
 
-You cannot build the Linux package from Windows — `electron-builder` must run on a Linux host. Note that `npm install` fetches the Electron binary for your current platform; if you switch platforms, run `npm rebuild electron`.
+Both package scripts write into `release/` and leave each other's output alone, so rebuilding the Linux packages does not remove an existing Windows installer.
+
+**Cross-compiling Windows from Linux** works — `electron-builder` drives the NSIS installer through Wine. Two cautions:
+
+- Wine must be installed (`wine --version`).
+- Never run two `electron-builder` processes at once. They extract Electron into the same temporary directory and race, failing with `ENOENT ... win-unpacked.tmp/electron.exe`.
 
 ## How it works
 
 ```
-renderer/                 React UI (tabs, preview, account panel, quota)
+renderer/                 React UI (tabs, preview, account bar, modals)
+  src/components/         TabBar, TabView, SubtitlePreview, JobStrip, …
+  src/hooks/              useTranslation, useTheme, useAntigravity
+  src/lib/                model picker, quota helpers
+  src/styles/globals.css  design tokens + component classes
 src/preload/              contextBridge IPC surface (no node in renderer)
 src/main/
   index.ts                window lifecycle
@@ -105,9 +117,13 @@ Subtitles are split into chunks of 15 and translated in parallel (6 concurrent, 
 
 Cue **timings and ordering are taken from the original file** — only the text is replaced. That means a model renumbering its output can't corrupt your timestamps.
 
+The model is selected automatically: the latest Pro model available on your account is preferred, never a Flash variant. The picker lives under **Advanced** so the main UI stays uncluttered, and quota stays visible on the main bar.
+
 ### Failure behaviour
 
 If a chunk exhausts all retries, the job **reports an error** — it never presents a partly-untranslated file as finished. The lines that did translate are kept and shown, with a warning that the rest are still in the original language; the export button changes to *Export Anyway (Incomplete)*. Deterministic errors (model not available on your plan, access denied) stop the queue immediately rather than firing doomed requests.
+
+Cancelling is a **distinct outcome** from failing: the run reports *Cancelled* (not an error) and whatever translated so far stays exportable.
 
 ## Troubleshooting
 
@@ -129,8 +145,16 @@ sudo pacman -S fuse2                        # Arch
 **Slow startup on Arch**
 The AppImage's FUSE mount is slow on some kernels. `--appimage-extract-and-run` skips it (cold start drops from ~40s to a few seconds). The AUR package's launcher already does this.
 
+The bundled squashfs also uses **zstd** compression rather than xz. xz is decompressed on every file read through FUSE, and Electron touches hundreds of files during startup — with xz a cold launch took 77 seconds. The file is slightly larger with zstd but starts in about a second.
+
+**Theme toggle has no animation**
+Windows and Linux both honour the OS "reduce motion" setting, and the app respects it by design. Re-enable animations:
+
+- **Windows:** Settings → Accessibility → Visual effects → Animation effects → On
+- **Linux (GNOME):** `gsettings set org.gnome.desktop.interface enable-animations true`
+
 **"Model not available on this account"**
-Not every model is available on every plan. Pick a different model from the dropdown.
+Not every model is available on every plan. Pick a different model from the Advanced panel.
 
 ## Credits
 

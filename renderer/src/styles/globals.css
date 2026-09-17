@@ -1,1 +1,685 @@
-@import "tailwindcss";
+/* ============================================================================
+   SRT Translator — design tokens
+   ----------------------------------------------------------------------------
+   Palette and metrics come from the Figma file (to6QAylagrFeIzdAejhygn):
+   Tailwind slate ramp + teal #0d9488, type set in Geist / Geist Mono.
+
+   THEMING: colours are declared as swappable `--t-*` variables on :root and
+   mapped into Tailwind via `@theme inline`. `inline` matters — it keeps the
+   var() reference in the emitted utility so a theme swap actually repaints,
+   instead of baking the light value in at build time.
+
+   Light is the default; `data-theme` on <html> switches.
+
+   TYPE SCALE WARNING: use the named utilities (text-base, text-sm, …). A bare
+   `text-[var(--text-x)]` arbitrary value resolves to `color` in v4, not
+   font-size, and silently falls back to 16px.
+   ========================================================================= */
+
+@import 'tailwindcss';
+
+/* Geist, bundled locally so the type survives offline in Electron. */
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
+
+/* ── Light (default) ──────────────────────────────────────────────────────── */
+:root,
+:root[data-theme='light'] {
+  --t-canvas: #f8fafc; /* page background — slate-50 */
+  --t-surface: #ffffff; /* cards, bars */
+  --t-surface-alt: #f8fafc; /* quiet bands: file header, active tab */
+  --t-surface-sunken: #f1f5f9; /* switch tracks, wells */
+
+  --t-border: #e2e8f0; /* slate-200 — every hairline */
+  --t-border-strong: #cbd5e1;
+
+  --t-text: #0f172a; /* slate-900 — headings, values */
+  --t-text-body: #475569; /* slate-600 — body, toggle labels */
+  --t-text-muted: #94a3b8; /* slate-400 — meta, captions */
+
+  --t-teal: #0d9488;
+  --t-teal-hover: #0f766e;
+  --t-teal-text: #0d9488; /* teal as text on this surface */
+  --t-teal-soft: #f0fdfa; /* teal-50 — badges, avatar */
+  --t-teal-deep: #115e59; /* teal-800 — text on teal-soft */
+
+  --t-warn-bg: #fefce8;
+  --t-warn-border: #eab308;
+  --t-warn-text: #a16207;
+
+  --t-danger: #dc2626;
+  --t-danger-bg: #fef2f2;
+
+  --t-shadow-btn: rgba(13, 148, 136, 0.13);
+  --t-shadow-card: rgba(15, 23, 42, 0.04);
+  --t-scroll: rgba(15, 23, 42, 0.2);
+  --t-scroll-hover: rgba(15, 23, 42, 0.35);
+}
+
+/* ── Dark ─────────────────────────────────────────────────────────────────── */
+:root[data-theme='dark'] {
+  --t-canvas: #020617; /* slate-950 */
+  --t-surface: #0f172a; /* slate-900 */
+  --t-surface-alt: #1e293b; /* slate-800 — reads as a raised band on dark */
+  --t-surface-sunken: #020617;
+
+  --t-border: #1e293b;
+  --t-border-strong: #334155;
+
+  --t-text: #f1f5f9;
+  --t-text-body: #cbd5e1;
+  --t-text-muted: #64748b;
+
+  --t-teal: #0d9488;
+  --t-teal-hover: #14b8a6;
+  /* #0d9488 fails contrast as text on slate-950, so text uses the light tint. */
+  --t-teal-text: #2dd4bf;
+  --t-teal-soft: rgba(13, 148, 136, 0.15);
+  --t-teal-deep: #5eead4;
+
+  --t-warn-bg: rgba(234, 179, 8, 0.12);
+  --t-warn-border: rgba(234, 179, 8, 0.4);
+  --t-warn-text: #facc15;
+
+  --t-danger: #f87171;
+  --t-danger-bg: rgba(220, 38, 38, 0.12);
+
+  --t-shadow-btn: rgba(0, 0, 0, 0.35);
+  --t-shadow-card: rgba(0, 0, 0, 0.25);
+  --t-scroll: rgba(255, 255, 255, 0.14);
+  --t-scroll-hover: rgba(255, 255, 255, 0.26);
+}
+
+@theme {
+  /* ── Type: Geist, with Geist Mono for filenames and timecodes. ── */
+  --font-sans: 'Geist Variable', 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
+    sans-serif;
+  --font-mono: 'Geist Mono Variable', 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* Type scale — the exact steps the design uses. Each emits a real utility. */
+  --text-nano: 0.5625rem; /*  9px — uppercase field labels */
+  --text-nano--line-height: 1.2;
+  --text-mini: 0.625rem; /* 10px — badge + reset captions */
+  --text-mini--line-height: 1.3;
+  --text-micro: 0.6875rem; /* 11px — muted meta, cue counts */
+  --text-micro--line-height: 1.35;
+  --text-sm: 0.75rem; /* 12px — status bar, mono filename */
+  --text-sm--line-height: 1.4;
+  --text-base: 0.8125rem; /* 13px — body, email, timecodes */
+  --text-base--line-height: 1.5;
+  --text-md: 0.875rem; /* 14px — buttons, toggle labels */
+  --text-md--line-height: 1.4;
+  --text-lg: 1rem; /* 16px — product name */
+  --text-lg--line-height: 1.3;
+  --text-title: 1.125rem; /* 18px — page headings */
+  --text-title--line-height: 1.25;
+
+  /* ── Radii: exactly the design's set. ── */
+  --radius-xs: 3px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  /* ── Motion: strong curves, not CSS's built-ins (too weak to read as
+        intentional). UI durations stay under 300ms. ── */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+}
+
+/* Semantic colours mapped onto the swappable vars. `inline` keeps the var()
+   reference in the emitted utility so a theme change actually repaints. */
+@theme inline {
+  --color-canvas: var(--t-canvas);
+  --color-surface: var(--t-surface);
+  --color-surface-alt: var(--t-surface-alt);
+  --color-surface-sunken: var(--t-surface-sunken);
+
+  --color-border: var(--t-border);
+  --color-border-strong: var(--t-border-strong);
+
+  --color-text: var(--t-text);
+  --color-text-body: var(--t-text-body);
+  --color-text-muted: var(--t-text-muted);
+
+  --color-teal: var(--t-teal);
+  --color-teal-hover: var(--t-teal-hover);
+  --color-teal-text: var(--t-teal-text);
+  --color-teal-soft: var(--t-teal-soft);
+  --color-teal-deep: var(--t-teal-deep);
+
+  --color-warn-bg: var(--t-warn-bg);
+  --color-warn-border: var(--t-warn-border);
+  --color-warn-text: var(--t-warn-text);
+
+  --color-danger: var(--t-danger);
+  --color-danger-bg: var(--t-danger-bg);
+}
+
+/* ── Base ─────────────────────────────────────────────────────────────────── */
+
+@layer base {
+  * {
+    border-color: var(--t-border);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  /* Lock the root size so every rem step above is deterministic. */
+  html {
+    font-size: 16px;
+    color-scheme: light;
+  }
+  html[data-theme='dark'] {
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    background: var(--t-canvas);
+    color: var(--t-text);
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: 1.5;
+    font-feature-settings: 'cv01', 'ss03';
+    font-synthesis-weight: none;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overflow: hidden; /* the app owns its scroll regions */
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    text-wrap: pretty;
+  }
+
+  /* Theme crossfade (fallback) ------------------------------------------------
+     Used when the View Transitions API isn't available. Colour is the one
+     sanctioned exception to the transform/opacity rule: the purpose is to
+     bridge a repaint of every surface at once, which without a transition
+     reads as a hard flash.
+
+     Scoped to a temporary `.theme-switching` class rather than sitting on `*`
+     permanently — a permanent global transition would also slow every hover
+     and press. */
+  .theme-switching,
+  .theme-switching *,
+  .theme-switching *::before,
+  .theme-switching *::after {
+    transition:
+      background-color 220ms var(--ease-out),
+      border-color 220ms var(--ease-out),
+      color 220ms var(--ease-out),
+      fill 220ms var(--ease-out),
+      stroke 220ms var(--ease-out),
+      box-shadow 220ms var(--ease-out) !important;
+    /* Don't let a mid-flight hover/active transform get retimed by the swap. */
+    transition-delay: 0s !important;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--t-teal);
+    outline-offset: 1px;
+    border-radius: var(--radius-sm);
+  }
+
+  ::selection {
+    background: rgba(13, 148, 136, 0.24);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--t-scroll);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--t-scroll-hover);
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}
+
+/* ── Component primitives ─────────────────────────────────────────────────── */
+
+@layer components {
+  /* Surfaces ------------------------------------------------------------------ */
+  .surface {
+    background: var(--t-surface);
+    border: 1px solid var(--t-border);
+    border-radius: var(--radius-xl);
+  }
+
+  /* Buttons -------------------------------------------------------------------
+     38px tall, 8px radius, 8px icon gap — the design's single button shape.
+     Every pressable scales down on :active: instant confirmation that the
+     interface heard the click. transform only, so it stays on the GPU. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    height: 2.375rem; /* 38px */
+    padding: 0 1rem;
+    border-radius: var(--radius-lg);
+    font-size: var(--text-md);
+    font-weight: 600;
+    letter-spacing: -0.006em;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      background-color 130ms var(--ease-out),
+      border-color 130ms var(--ease-out),
+      color 130ms var(--ease-out),
+      transform 150ms var(--ease-out);
+  }
+  .btn:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+  .btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+
+  /* Teal carries white text at 14px semibold (4.6:1). */
+  .btn-primary {
+    background: var(--t-teal);
+    color: #ffffff;
+    border: 1px solid transparent;
+    box-shadow: 0 2px 2px var(--t-shadow-btn);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--t-teal-hover);
+  }
+
+  .btn-secondary {
+    background: var(--t-surface);
+    color: var(--t-text);
+    border: 1px solid var(--t-border);
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background: var(--t-surface-alt);
+    border-color: var(--t-border-strong);
+  }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--t-text-body);
+    border: 1px solid transparent;
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background: var(--t-surface-alt);
+    color: var(--t-text);
+  }
+
+  .btn-danger {
+    background: var(--t-danger-bg);
+    color: var(--t-danger);
+    border: 1px solid transparent;
+  }
+  .btn-danger:hover:not(:disabled) {
+    border-color: var(--t-danger);
+  }
+
+  /* Icon button: square, quiet, generous hit area. */
+  .btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: var(--radius-lg);
+    color: var(--t-text-muted);
+    background: transparent;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition:
+      background-color 130ms var(--ease-out),
+      color 130ms var(--ease-out),
+      transform 150ms var(--ease-out);
+  }
+  .btn-icon:active:not(:disabled) {
+    transform: scale(0.94);
+  }
+  .btn-icon:hover:not(:disabled) {
+    background: var(--t-surface-alt);
+    color: var(--t-text);
+  }
+
+  /* Inputs -------------------------------------------------------------------- */
+  .field {
+    width: 100%;
+    height: 2.375rem;
+    padding: 0 0.75rem;
+    background: var(--t-surface);
+    border: 1px solid var(--t-border);
+    border-radius: var(--radius-lg);
+    color: var(--t-text);
+    font-size: var(--text-base);
+    font-family: inherit;
+    transition: border-color 130ms var(--ease-out);
+  }
+  .field:hover {
+    border-color: var(--t-border-strong);
+  }
+  .field:focus {
+    outline: none;
+    border-color: var(--t-teal);
+  }
+  .field::placeholder {
+    color: var(--t-text-muted);
+  }
+
+  /* The chevron is drawn by the caller so it can use a themed SVG. */
+  select.field {
+    appearance: none;
+    padding-right: 2rem;
+    cursor: pointer;
+  }
+  select.field option {
+    background: var(--t-surface);
+    color: var(--t-text);
+  }
+
+  /* Pill badge — the 100px-radius capsule used by plan + status chips. */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    height: 1.3125rem; /* 21px */
+    padding: 0 0.625rem;
+    border-radius: 100px;
+    font-size: var(--text-mini);
+    /* Same optical centring as .chip — see the note there. Uppercase text has
+       no descenders at all, so an uncorrected line box shows worst here. */
+    line-height: 1;
+    padding-top: 2px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    background: var(--t-teal-soft);
+    color: var(--t-teal-deep);
+  }
+  .pill-warn {
+    background: var(--t-warn-bg);
+    color: var(--t-warn-text);
+    border: 1px solid var(--t-warn-border);
+    text-transform: none;
+    font-size: var(--text-micro);
+    font-weight: 600;
+    letter-spacing: 0;
+  }
+
+  /* Status chip — a smaller, sentence-case sibling of the pill, for inline
+     state on rows and cards. */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    height: 1.25rem;
+    padding: 0 0.5rem;
+    border-radius: 100px;
+    font-size: var(--text-micro);
+    /* Optical centring. `align-items: center` centres the *line box*, but glyph
+       ink sits above its box centre because fonts have more ascent than descent
+       — worst on digits, which have no descenders. line-height:1 removes the
+       half-leading and the 2px top padding shifts the ink onto the true centre.
+       Measured ink offset: 1.53px high -> 0.43px. */
+    line-height: 1;
+    padding-top: 2px;
+    font-weight: 600;
+    white-space: nowrap;
+    background: var(--t-surface-alt);
+    color: var(--t-text-body);
+    border: 1px solid var(--t-border);
+  }
+  .chip-accent {
+    background: var(--t-teal-soft);
+    color: var(--t-teal-deep);
+    border-color: var(--t-teal);
+  }
+  .chip-success {
+    background: var(--t-teal-soft);
+    color: var(--t-teal-deep);
+    border-color: var(--t-teal);
+  }
+  .chip-warning {
+    background: var(--t-warn-bg);
+    color: var(--t-warn-text);
+    border-color: var(--t-warn-border);
+  }
+  .chip-danger {
+    background: var(--t-danger-bg);
+    color: var(--t-danger);
+    border-color: var(--t-danger);
+  }
+
+  /* Uppercase field label — "TRANSLATION MODEL". */
+  .field-label {
+    font-size: var(--text-nano);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--t-text-muted);
+  }
+
+  /* Section eyebrow — the same idea as .field-label, for group headings. */
+  .eyebrow {
+    font-size: var(--text-micro);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--t-text-muted);
+  }
+
+  /* Switch: 36x20 track with a 16px thumb, 2px inset. */
+  .switch {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    width: 2.25rem;
+    height: 1.25rem;
+    flex-shrink: 0;
+    border-radius: 100px;
+    background: var(--t-surface-sunken);
+    border: 1px solid var(--t-border);
+    cursor: pointer;
+    transition:
+      background-color 160ms var(--ease-out),
+      border-color 160ms var(--ease-out);
+  }
+  .switch[aria-checked='true'] {
+    background: var(--t-teal);
+    border-color: var(--t-teal);
+  }
+  .switch:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+  .switch-thumb {
+    position: absolute;
+    left: 2px;
+    width: 1rem;
+    height: 1rem;
+    border-radius: 100px;
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2);
+    /* transform, not `left` — the thumb slides on the GPU. */
+    transition: transform 160ms var(--ease-out);
+  }
+  .switch[aria-checked='true'] .switch-thumb {
+    transform: translateX(1rem);
+  }
+
+  /* Meter: the 100x6 quota rail. */
+  .meter {
+    height: 0.375rem; /* 6px */
+    border-radius: 3px;
+    background: var(--t-border);
+    overflow: hidden;
+  }
+  .meter-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: var(--t-teal);
+    /* Constant motion (a filling meter) reads as linear. */
+    transition: width 240ms linear;
+  }
+
+  /* Modal entrance -------------------------------------------------------------
+     ease-out, 200ms — the user is watching, so it must not start slow. Exit is
+     faster than entry (system responding, not user deciding). Modals keep
+     transform-origin: center; they are not anchored to a trigger. */
+  .modal-backdrop {
+    background: rgba(2, 6, 23, 0.45);
+    backdrop-filter: blur(3px);
+    animation: backdrop-in 170ms var(--ease-out) both;
+  }
+  :root[data-theme='dark'] .modal-backdrop {
+    background: rgba(0, 0, 0, 0.6);
+  }
+  .modal-panel {
+    transform-origin: center;
+    animation: panel-in 200ms var(--ease-out) both;
+  }
+}
+
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ── Utilities ────────────────────────────────────────────────────────────── */
+
+@layer utilities {
+  /* Tabular figures stop timecodes and counters jittering. */
+  .nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .fade-in {
+    animation: fade-in 180ms var(--ease-out) both;
+  }
+
+  /* Stagger: for lists that enter together, 30–80ms apart. Decorative — never
+     blocks interaction. */
+  .stagger > * {
+    animation: fade-in 220ms var(--ease-out) both;
+  }
+  .stagger > *:nth-child(1) { animation-delay: 0ms; }
+  .stagger > *:nth-child(2) { animation-delay: 40ms; }
+  .stagger > *:nth-child(3) { animation-delay: 80ms; }
+  .stagger > *:nth-child(4) { animation-delay: 120ms; }
+  .stagger > *:nth-child(n + 5) { animation-delay: 160ms; }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ── Theme reveal (View Transitions) ──────────────────────────────────────────
+   A circular wipe expanding from the toggle button. `::view-transition-old` is
+   the outgoing theme snapshot, `::view-transition-new` the incoming one. The
+   new theme is revealed through an expanding circle while the old one sits
+   underneath, which is what makes the change read as sweeping out from the
+   control the user pressed rather than a flat crossfade.
+
+   Scoped to `.theme-reveal` so no other view transition in the app inherits it.
+
+   Reduced motion is handled in JS (the reveal is skipped entirely), so these
+   keyframes only ever run when motion is welcome. */
+.theme-reveal::view-transition-old(root) {
+  /* Hold the outgoing theme still; the new one is clipped over it. */
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+.theme-reveal::view-transition-new(root) {
+  /* 400ms — deliberately above the 300ms UI ceiling. This is a rare,
+     expressive moment, not a routine transition. */
+  animation: theme-reveal 400ms var(--ease-out) both;
+  mix-blend-mode: normal;
+}
+
+@keyframes theme-reveal {
+  from {
+    clip-path: circle(0% at var(--vt-x, 50%) var(--vt-y, 50%));
+  }
+  to {
+    clip-path: circle(var(--vt-r, 150%) at var(--vt-x, 50%) var(--vt-y, 50%));
+  }
+}
+
+/* Hover states only where a real pointer exists — touch fires hover on tap. */
+@media (hover: hover) and (pointer: fine) {
+  .hoverable {
+    transition: background-color 130ms var(--ease-out);
+  }
+  .hoverable:hover {
+    background: var(--t-surface-alt);
+  }
+}
+
+/* Reduced motion means fewer and gentler animations, NOT zero: keep opacity and
+   colour transitions that aid comprehension, drop movement and position. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 120ms !important;
+  }
+  .fade-in,
+  .stagger > * {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .btn:active:not(:disabled),
+  .btn-icon:active:not(:disabled) {
+    transform: none !important;
+  }
+  .switch-thumb {
+    transition: none !important;
+  }
+}
