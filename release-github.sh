@@ -39,10 +39,14 @@ gh release create "$TAG" "${ASSETS[@]}" \
 Sign in with your Google account to translate using its Gemini quota — no API key needed.
 
 **Highlights**
+- **Sign-in now works for brand-new Google accounts.** Accounts that had never used Gemini Code Assist were rejected with \"No Cloud Code project available\". The app no longer treats a missing Cloud Code project as a sign-in failure — it saves the session and retries discovery automatically, so an account starts working on its own once Google provisions the project.
 - Google Antigravity sign-in (replaces the old API-key backend)
 - Session is remembered between launches (refresh token encrypted via the OS keyring)
-- Failed chunks report an error instead of silently exporting untranslated text
+- Translates from any source language, not just English
+- Light/dark theme with a circular reveal animation
+- Failed chunks report an error instead of silently exporting untranslated text; cancelling reports Cancelled, not Failed
 - Per-model quota view with the plan-appropriate reset window
+- AppImage cold start dropped from ~77s to ~1s (zstd squashfs)
 - Linux packages no longer bundle ~38 MB of Windows-only MKVToolNix binaries
 
 **Linux install**
@@ -50,7 +54,10 @@ Sign in with your Google account to translate using its Gemini quota — no API 
 - AppImage: \`chmod +x\` then run
 - Debian/Ubuntu: \`sudo dpkg -i srt-translator_${VERSION}_amd64.deb\`
 
-Optional for MKV subtitle extraction: \`mkvtoolnix-cli\` (Arch) / \`mkvtoolnix\` (Debian)."
+**Windows install**
+- Run the installer. It is not code-signed, so SmartScreen may show \"Unknown publisher\" — choose *More info → Run anyway*.
+
+Optional for MKV subtitle extraction: \`mkvtoolnix-cli\` (Arch) / \`mkvtoolnix\` (Debian); bundled on Windows."
 
 echo "==> Uploaded. Verify at https://github.com/$REPO/releases/tag/$TAG"
 echo
