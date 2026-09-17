@@ -9,6 +9,12 @@ export interface OverallProgress {
   errorMessage?: string
 }
 
+/** Set when a job finished with some chunks permanently failed. */
+export interface IncompleteInfo {
+  failedChunks: number[]
+  totalChunks: number
+}
+
 /**
  * Per-tab translation hook. `jobId` (the tab id) places each hook instance on
  * one job: progress/complete events are filtered by jobId, and cancel aborts
@@ -19,6 +25,7 @@ export function useTranslation(jobId: string) {
   const [progress, setProgress] = useState<OverallProgress | null>(null)
   const [translatedEntries, setTranslatedEntries] = useState<SubtitleEntry[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [incomplete, setIncomplete] = useState<IncompleteInfo | null>(null)
   const cleanupRefs = useRef<(() => void)[]>([])
   const completedChunksRef = useRef<Set<number>>(new Set())
 
@@ -31,6 +38,7 @@ export function useTranslation(jobId: string) {
     setProgress(null)
     setTranslatedEntries(null)
     setError(null)
+    setIncomplete(null)
     completedChunksRef.current = new Set()
 
     // Clean up any previous listeners
@@ -74,6 +82,15 @@ export function useTranslation(jobId: string) {
         }))
       } else {
         setError(result.error || 'Translation failed')
+        // Some chunks succeeded before others gave up: keep the translated work
+        // visible so it can still be exported, and flag that it is incomplete.
+        if (result.partialData) {
+          setTranslatedEntries(result.partialData)
+          setIncomplete({
+            failedChunks: result.failedChunks ?? [],
+            totalChunks: result.totalChunks ?? 0
+          })
+        }
       }
       setTranslating(false)
       cleanupRefs.current.forEach(fn => fn())
@@ -93,7 +110,17 @@ export function useTranslation(jobId: string) {
     setTranslatedEntries(null)
     setProgress(null)
     setError(null)
+    setIncomplete(null)
   }, [])
 
-  return { translating, progress, translatedEntries, error, startTranslation, cancelTranslation, reset }
+  return {
+    translating,
+    progress,
+    translatedEntries,
+    error,
+    incomplete,
+    startTranslation,
+    cancelTranslation,
+    reset
+  }
 }

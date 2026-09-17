@@ -3,12 +3,13 @@ out/
 *.log
 .DS_Store
 
+# Editor / agent tooling
+.claude/
+.vscode/
+.idea/
+
+# TypeScript incremental build info
+*.tsbuildinfo
+
 # Build artifacts / distributables — these go in GitHub Releases, not git
-release/*.AppImage
-release/*.exe
-release/*.blockmap
-release/*.deb
-release/linux-unpacked/
-release/win-unpacked/
-release/srt-appdir/
-release/builder-debug.yml
+release/

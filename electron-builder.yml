@@ -6,21 +6,26 @@ directories:
 files:
   - out/**/*
   - package.json
-extraResources:
-  - from: resources/tools
-    to: tools
+  - '!out/**/*.tsbuildinfo'
 asar: true
 compression: maximum
 electronLanguages:
   - en-US
 removePackageScripts: true
+
 win:
   target: nsis
   icon: build/icon.ico
+  # Windows has no system MKVToolNix by default, so ship the bundled binaries.
+  extraResources:
+    - from: resources/tools
+      to: tools
+
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   perMachine: false
+
 linux:
   target:
     - appImage
@@ -30,9 +35,7 @@ linux:
   synopsis: AI-powered English to Sinhala SRT subtitle translator
   maintainer: Yehan <yehan@swict.lk>
   syncDesktopName: true
-  # Let the system MKVToolNix (pacman/apt) provide mkvmerge/mkvextract instead
-  # of shipping the Windows-only .exe binaries in resources/tools.
-  files:
-    - out/**/*
-    - package.json
-    - '!resources/tools/*.exe'
+  # Linux uses the system MKVToolNix (pacman/apt) via the PATH lookups in
+  # mkv-extract.ts. The bundled tools are Windows .exe files, so shipping them
+  # here would only bloat the package (~38 MB) — deliberately omitted.
+  extraResources: []

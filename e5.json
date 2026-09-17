@@ -1,1 +1,0 @@
-{"expression":"(() => { const by = {}; for (const e of window.__evts) { (by[e.jobId] = by[e.jobId] || []).push(e.status + (e.complete !== undefined ? \"/COMPLETE=\"+e.complete+(e.err?\"/\"+e.err:\"\") : \"\")); } const out = {}; for (const k in by) out[k] = by[k]; return JSON.stringify({jobIds: Object.keys(by), events: out}); })()"}

@@ -1,1 +1,0 @@
-{"expression":"JSON.stringify({tabs: document.querySelectorAll(\"[role=tab]\").length, buttons: [...document.querySelectorAll(\"button\")].map(b=>b.textContent.trim()).filter(Boolean).slice(0,10), saved: window.localStorage.getItem(\"srt-translator-settings\")})"}

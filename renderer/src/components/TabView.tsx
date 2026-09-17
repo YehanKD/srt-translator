@@ -24,18 +24,9 @@ interface Props {
   onTabInfoChange: (tabId: string, info: TabViewInfo) => void
 }
 
-// A subtitle whose whole text is a bracketed sound/background cue — e.g.
-// "(ALARM BLARING)", "[GUARDS YELLING]" — is not dialogue, so we drop it.
 const SOUND_CUE_RE = /^\s*(?:\([\s\S]*?\)|\[[\s\S]*?\])\s*$/
-
-// Optional ALL-CAPS speaker tag, e.g. "CHOW:", "ALAN:", "WOMAN 1:",
-// "MILLER (V.O.):", "BILLY JOEL (SINGING...):". Matches both at the start of a
-// line and inline mid-line ("- Pensive? ALAN: - Yeah."). Kept to uppercase so
-// normal dialogue (which is Title Case) doesn't get clipped.
 const SPEAKER_RE = /(?<=^|\s)(?:-\s*)?[A-Z][A-Z0-9 .'&#()\-]{1,50}?:/g
 
-// Strip speaker-name tags (leading or inline). Lines left empty (a bare
-// "CHOW:" with nothing after) are dropped, then everything is re-numbered.
 function stripSpeakerNames(entries: SubtitleEntry[]): SubtitleEntry[] {
   const kept: SubtitleEntry[] = []
   for (const e of entries) {
@@ -50,9 +41,6 @@ function stripSpeakerNames(entries: SubtitleEntry[]): SubtitleEntry[] {
   return kept.map((e, i) => ({ ...e, id: String(i + 1) }))
 }
 
-// Anti-spoiler preference: new tabs start with the preview blurred (default
-// on). It's a persistent default too — restore on ("true") so it stays
-// blurred across restarts regardless of any per-tab reveal.
 const BLUR_PREF_KEY = 'srt-translator-blur-default'
 function loadBlurDefault(): boolean {
   try {
@@ -69,26 +57,20 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
   const [sourceFileName, setSourceFileName] = useState('')
   const [removedSoundCount, setRemovedSoundCount] = useState(0)
   const [removeSpeakerNames, setRemoveSpeakerNames] = useState(false)
-  // Per-tab anti-spoiler state. Defaults from the persisted preference; each
-  // tab can be revealed independently while the others stay blurred.
   const [blurred, setBlurred] = useState<boolean>(loadBlurDefault)
 
-  const { translating, progress, translatedEntries, error, startTranslation, cancelTranslation, reset } =
+  const { translating, progress, translatedEntries, error, incomplete, startTranslation, cancelTranslation, reset } =
     useTranslation(tabId)
 
   const percent = progress
     ? Math.round((progress.completedChunks / progress.totalChunks) * 100)
     : null
 
-  // What actually gets previewed + translated: the working set, minus speaker
-  // tags when the checkbox is on. Kept separate from sourceEntries so toggling
-  // stays reversible.
   const effectiveEntries = useMemo(
     () => (removeSpeakerNames && sourceEntries ? stripSpeakerNames(sourceEntries) : sourceEntries),
     [sourceEntries, removeSpeakerNames]
   )
 
-  // Report this tab's title/status up so the tab bar can show spinners + %.
   useEffect(() => {
     onTabInfoChange(tabId, {
       title: sourceFileName || defaultTitle,
@@ -98,9 +80,6 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
     })
   }, [tabId, sourceFileName, defaultTitle, translating, percent, effectiveEntries, onTabInfoChange])
 
-  // Consume externally-provided subtitles (MKV extraction / home drop). The
-  // effect re-runs whenever a NEW initialImport object arrives, so content can
-  // be loaded into an already-mounted tab (e.g. a home tab turning workspace).
   useEffect(() => {
     if (!initialImport) return
     setSourceEntries(initialImport.entries)
@@ -130,13 +109,11 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
     startTranslation(effectiveEntries, settings)
   }, [effectiveEntries, settings, startTranslation])
 
-  // Toggle speaker-name stripping; any existing translation is stale afterwards.
   const toggleSpeakerNames = useCallback(() => {
     setRemoveSpeakerNames((v) => !v)
     reset()
   }, [reset])
 
-  // Drop non-dialogue sound/background cues ((…) or […]) and re-number.
   const handleRemoveSoundLines = useCallback(() => {
     if (!sourceEntries) return
     const kept = sourceEntries.filter((e) => !SOUND_CUE_RE.test(e.text))
@@ -146,12 +123,12 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
     reset()
   }, [sourceEntries, reset])
 
-  const canTranslate = sourceEntries && settings.endpointUrl && settings.modelId && !translating
+  const canTranslate = sourceEntries && settings.modelId && !translating
 
   return (
     <div className={isActive ? 'space-y-4' : 'hidden'}>
       {sourceEntries && (
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button
             onClick={handleTranslate}
             disabled={!canTranslate}
@@ -243,12 +220,15 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
           fileName={sourceFileName}
           isTranslating={translating}
           blurred={blurred}
+          incomplete={incomplete}
         />
       )}
 
-      <TranslationProgress progress={progress} onCancel={cancelTranslation} error={error} />
+      <TranslationProgress progress={progress} onCancel={cancelTranslation} error={error} incomplete={incomplete} />
 
-      {translatedEntries && <ExportButton entries={translatedEntries} sourceFileName={sourceFileName} />}
+      {translatedEntries && (
+        <ExportButton entries={translatedEntries} sourceFileName={sourceFileName} incomplete={incomplete} />
+      )}
     </div>
   )
 }

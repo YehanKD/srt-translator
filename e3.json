@@ -1,1 +1,0 @@
-{"expression":"JSON.stringify([...document.querySelectorAll(\"[role=tab]\")].map(t=>t.textContent.trim()))"}

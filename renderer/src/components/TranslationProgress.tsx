@@ -1,32 +1,30 @@
-interface OverallProgress {
-  completedChunks: number
-  totalChunks: number
-  status: 'sending' | 'received' | 'error'
-  activeChunks: number
-  errorMessage?: string
-}
+import type { OverallProgress } from '../hooks/useTranslation'
 
 interface Props {
   progress: OverallProgress | null
   onCancel: () => void
   error: string | null
+  /** Set when some chunks failed permanently — the result is NOT complete. */
+  incomplete?: { failedChunks: number[]; totalChunks: number } | null
 }
 
-export function TranslationProgress({ progress, onCancel, error }: Props) {
+export function TranslationProgress({ progress, onCancel, error, incomplete }: Props) {
   if (!progress && !error) return null
 
   const percent = progress ? Math.round((progress.completedChunks / progress.totalChunks) * 100) : 0
-  const isDone = progress?.status === 'done'
+  const isDone = progress?.status === 'done' && !incomplete
 
   return (
     <div className="bg-gray-900 rounded-xl p-5 border border-gray-800">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-medium text-gray-200">
-          {progress?.status === 'error'
-            ? 'Translation Error'
-            : isDone
-              ? 'Translation Complete'
-              : 'Translating...'}
+          {incomplete
+            ? 'Translation Incomplete'
+            : progress?.status === 'error'
+              ? 'Translation Error'
+              : isDone
+                ? 'Translation Complete'
+                : 'Translating...'}
         </h3>
         {!isDone && (
           <button
@@ -38,7 +36,15 @@ export function TranslationProgress({ progress, onCancel, error }: Props) {
         )}
       </div>
 
-      {progress && progress.status !== 'error' && (
+      {incomplete && (
+        <p className="text-amber-300 text-sm mb-2">
+          {incomplete.failedChunks.length} of {incomplete.totalChunks} chunk
+          {incomplete.totalChunks === 1 ? '' : 's'} failed after all retries. Those lines are still in
+          the original language — review them before exporting.
+        </p>
+      )}
+
+      {progress && progress.status !== 'error' && !incomplete && (
         <>
           <div className="w-full bg-gray-800 rounded-full h-2 mb-2">
             <div

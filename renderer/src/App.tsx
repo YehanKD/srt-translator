@@ -1,10 +1,12 @@
 import { useState, useCallback, useRef } from 'react'
-import { SettingsPanel } from './components/SettingsPanel'
+import { AccountPanel } from './components/AccountPanel'
 import { StatusBar } from './components/StatusBar'
 import { HomeView } from './components/HomeView'
+import { QuotaModal } from './components/QuotaModal'
 import { TabBar, type TabInfo as TabBarTabInfo } from './components/TabBar'
 import { TabView, type TabViewInfo } from './components/TabView'
-import type { ApiSettings, SubtitleEntry } from '@shared/types'
+import { useAntigravity } from './hooks/useAntigravity'
+import type { SubtitleEntry, ApiSettings } from '@shared/types'
 
 interface TabState {
   id: string
@@ -14,18 +16,15 @@ interface TabState {
 type View = 'home' | 'workspace'
 
 export default function App() {
-  const [settings, setSettings] = useState<ApiSettings>({ endpointUrl: '', apiKey: '', modelId: '' })
+  const { status, progress, quota, models, selectedModelId, loading, error, canPersist, login, cancelLogin, logout, selectModel, refreshQuota } = useAntigravity()
+
   const [tabs, setTabs] = useState<TabState[]>([{ id: 'tab-1', title: 'Untitled 1' }])
   const [activeTabId, setActiveTabId] = useState('tab-1')
-  // Each tab carries its own home/workspace lifecycle: a new tab opens on the
-  // home page so the user can start a fresh movie workflow (add → extract →
-  // translate → export) without touching other tabs.
   const [tabView, setTabViewState] = useState<Record<string, View>>({ 'tab-1': 'home' })
   const [tabInfo, setTabInfo] = useState<Record<string, TabViewInfo>>({})
-  // Per-tab preloaded subtitles (from MKV extraction or a home drag-and-drop).
   const [tabInitial, setTabInitial] = useState<Record<string, { entries: SubtitleEntry[]; fileName: string } | null>>({})
-  // Per-tab pending MKV path handed from a workspace drop to that tab's home view.
   const [pendingMkvByTab, setPendingMkvByTab] = useState<Record<string, string>>({})
+  const [showQuotaModal, setShowQuotaModal] = useState(false)
   const counterRef = useRef(1)
 
   const setTabView = useCallback((tabId: string, view: View) => {
@@ -36,9 +35,6 @@ export default function App() {
     setTabInfo((prev) => ({ ...prev, [tabId]: info }))
   }, [])
 
-  // New tab without content → starts on the home page (fresh movie workflow).
-  // New tab WITH content (e.g. a second extraction while one is open) → goes
-  // straight to the workspace so the loaded subtitles are visible immediately.
   const addTab = useCallback((initialImport?: { entries: SubtitleEntry[]; fileName: string }) => {
     counterRef.current += 1
     const id = `tab-${counterRef.current}`
@@ -52,7 +48,7 @@ export default function App() {
 
   const closeTab = useCallback((id: string) => {
     setTabs((prev) => {
-      if (prev.length <= 1) return prev // never close the last tab
+      if (prev.length <= 1) return prev
       const next = prev.filter((t) => t.id !== id)
       if (next.length === 0) return prev
       setActiveTabId((active) => (active === id ? next[next.length - 1].id : active))
@@ -88,16 +84,12 @@ export default function App() {
     setActiveTabId(id)
   }, [])
 
-  // Load content into a SPECIFIC tab (the home tab that initiated the flow)
-  // and flip it to the workspace — one tab = one movie pipeline.
   const loadIntoTab = useCallback((tabId: string, entries: SubtitleEntry[], fileName: string) => {
     setTabInitial((prev) => ({ ...prev, [tabId]: { entries, fileName } }))
     setTabViewState((prev) => ({ ...prev, [tabId]: 'workspace' }))
     setActiveTabId(tabId)
   }, [])
 
-  // TabView consumed an initialImport — drop it so the same object can't be
-  // re-consumed and future loads into the same tab still trigger the effect.
   const handleTabInitialConsumed = useCallback((tabId: string) => {
     setTabInitial((prev) => {
       if (!(tabId in prev)) return prev
@@ -107,7 +99,6 @@ export default function App() {
     })
   }, [])
 
-  // A .mkv dropped in a translator tab routes to THAT tab's home extract flow.
   const handleMkvDropped = useCallback((tabId: string, path: string) => {
     setPendingMkvByTab((prev) => ({ ...prev, [tabId]: path }))
     setTabViewState((prev) => ({ ...prev, [tabId]: 'home' }))
@@ -132,6 +123,11 @@ export default function App() {
 
   const activeInfo = tabInfo[activeTabId]
   const activeTabHome = tabView[activeTabId] === 'home'
+
+  // Build settings object for TabView
+  const settings: ApiSettings = {
+    modelId: selectedModelId
+  }
 
   return (
     <div className="h-screen flex flex-col bg-gray-950">
@@ -167,7 +163,7 @@ export default function App() {
       <TabBar tabs={barTabs} activeTabId={activeTabId} onSelect={selectTab} onAdd={() => addTab()} onClose={closeTab} />
 
       <div className="flex-1 flex overflow-hidden">
-        {/* Home page of the active tab (only rendered for the active tab). */}
+        {/* Home page of the active tab */}
         <div className={activeTabHome ? 'flex-1 flex flex-col overflow-hidden' : 'hidden'}>
           {activeTabHome && (
             <HomeView
@@ -180,11 +176,36 @@ export default function App() {
           )}
         </div>
 
-        {/* Workspace — kept mounted (hidden while the active tab shows home)
-            so every tab keeps its loaded subtitles and progress. */}
+        {/* Workspace */}
         <div className={activeTabHome ? 'hidden' : 'flex-1 flex overflow-hidden'}>
-          <aside className="w-80 border-r border-gray-800 p-4 overflow-y-auto flex-shrink-0">
-            <SettingsPanel settings={settings} onChange={setSettings} />
+          <aside className="w-80 border-r border-gray-800 p-4 overflow-y-auto flex-shrink-0 space-y-4">
+            <AccountPanel
+              status={status}
+              quota={quota}
+              models={models}
+              selectedModelId={selectedModelId}
+              loading={loading}
+              error={error}
+              canPersist={canPersist}
+              onLogin={login}
+              onLogout={logout}
+              onSelectModel={selectModel}
+              onRefreshQuota={refreshQuota}
+              onShowQuotaDetail={() => setShowQuotaModal(true)}
+            />
+            {progress && progress.phase !== 'complete' && progress.phase !== 'cancelled' && progress.phase !== 'error' && (
+              <div className="bg-gray-900 rounded-xl p-4 border border-gray-800 text-center">
+                <p className="text-xs text-gray-400">{progress.message || 'Signing in...'}</p>
+                {progress.phase === 'waiting-callback' && (
+                  <button
+                    onClick={cancelLogin}
+                    className="mt-2 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            )}
           </aside>
 
           <main className="flex-1 p-5 overflow-y-auto space-y-4">
@@ -207,9 +228,19 @@ export default function App() {
 
       {!activeTabHome && (
         <StatusBar
-          settings={settings}
+          signedIn={status.signedIn}
+          accountEmail={status.account?.email}
+          modelId={selectedModelId}
           subtitleCount={activeInfo?.subtitleCount ?? 0}
           translating={activeInfo?.translating ?? false}
+        />
+      )}
+
+      {showQuotaModal && quota && (
+        <QuotaModal
+          quota={quota}
+          onClose={() => setShowQuotaModal(false)}
+          onRefresh={refreshQuota}
         />
       )}
     </div>

@@ -3,9 +3,16 @@ import { join } from 'path'
 import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { registerIpcHandlers } from './ipc-handlers'
 
+// Must be set BEFORE app.whenReady(): on Linux, Electron's safeStorage only
+// reports encryption as available when it knows which keyring backend to use.
+// Without this it returns false even on a machine with a working
+// gnome-keyring/libsecret, so the saved session would never be written.
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('password-store', 'gnome-libsecret')
+}
+
 let mainWindow: BrowserWindow | null = null
 
-// First-launch default = the size we settled on during testing.
 const DEFAULT_SIZE = { width: 1236, height: 958 }
 
 function stateFile(): string {
@@ -27,12 +34,9 @@ function loadSavedBounds(): { width: number; height: number } | null {
 }
 
 function createWindow(): void {
-  // Remove the default File/Edit/View/Window/Help menu bar entirely.
   Menu.setApplicationMenu(null)
 
   const saved = loadSavedBounds() ?? DEFAULT_SIZE
-
-  // Clamp so a persisted size can never restore the window off-screen.
   const workArea = screen.getPrimaryDisplay().workAreaSize
   const width = Math.max(400, Math.min(saved.width, workArea.width))
   const height = Math.max(400, Math.min(saved.height, workArea.height))
@@ -49,7 +53,6 @@ function createWindow(): void {
     }
   })
 
-  // Persist the window size so every new instance opens at the last size.
   let saveTimer: NodeJS.Timeout | null = null
   const persistNow = () => {
     if (!mainWindow || mainWindow.isDestroyed()) return

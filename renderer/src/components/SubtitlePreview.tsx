@@ -8,11 +8,13 @@ interface Props {
   // Anti-spoiler: when true both the English and Sinhala text columns are
   // blurred so you can't accidentally read the story while batch-translating.
   blurred?: boolean
+  // When set, some chunks failed: show a warning badge instead of "Translated".
+  incomplete?: { failedChunks: number[]; totalChunks: number } | null
 }
 
-export function SubtitlePreview({ source, translated, fileName, isTranslating, blurred }: Props) {
+export function SubtitlePreview({ source, translated, fileName, isTranslating, blurred, incomplete }: Props) {
   const translatedCount = translated?.length ?? 0
-  const isComplete = translatedCount >= source.length && !isTranslating
+  const isComplete = translatedCount >= source.length && !isTranslating && !incomplete
 
   const blurClass = 'blur-[6px] select-none cursor-not-allowed'
 
@@ -67,6 +69,11 @@ export function SubtitlePreview({ source, translated, fileName, isTranslating, b
         {isTranslating && translatedCount > 0 && (
           <span className="text-xs text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded-full">
             {translatedCount}/{source.length} translated
+          </span>
+        )}
+        {incomplete && (
+          <span className="text-xs text-amber-300 bg-amber-400/10 px-2 py-0.5 rounded-full">
+            Incomplete — {incomplete.failedChunks.length}/{incomplete.totalChunks} chunks failed
           </span>
         )}
         {blurred && translatedCount > 0 && (
