@@ -22,7 +22,10 @@ export function QuotaModal({ quota, onClose, onRefresh }: Props) {
   // limit resets every 5 hours, while a free plan's resets weekly. Showing
   // both (or always picking weekly) is what made Pro accounts display a
   // reset days away. Mirrors how Omniroute presents it.
-  const isPaidPlan = !/^free$/i.test((quota.plan || '').trim())
+  const planLabel = (quota.plan || '').trim()
+  // Unknown/empty plan counts as free: show the weekly window rather than
+  // implying a 5-hour reset the account may not have.
+  const isPaidPlan = planLabel.length > 0 && !/^free$/i.test(planLabel)
   const preferred = isPaidPlan ? '5h' : 'weekly'
   const groupLimits = (() => {
     const all = quota.weekly ?? []
