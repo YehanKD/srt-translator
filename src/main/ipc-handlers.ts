@@ -246,7 +246,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
       return {
         success: true,
         data: {
-          plan: result.plan,
+          // The quota RPCs don't carry the tier, so trust the plan resolved at
+          // sign-in (from loadCodeAssist's paidTier) over their empty default.
+          plan: session.plan || result.plan,
           models,
           weekly,
           credits: null,
@@ -259,7 +261,6 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   }
 
   ipcMain.handle(IPC_CHANNELS.QUOTA_GET, () => loadQuota(false))
-
   ipcMain.handle(IPC_CHANNELS.QUOTA_REFRESH, () => loadQuota(true))
 
   // ─── Antigravity models ─────────────────────────────────────────────
