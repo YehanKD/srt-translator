@@ -148,10 +148,18 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
       // Load Code Assist project
       let loadResult = await loadCodeAssist(tokens.accessToken)
       if (!loadResult) {
-        // No project — try onboarding
+        // No project yet — the account needs onboarding, which creates one.
+        emitAuthProgress(window, {
+          phase: 'onboarding',
+          message: 'Setting up this account (first-time)…'
+        })
         loadResult = await onboardUser(tokens.accessToken)
         if (!loadResult) {
-          throw new Error('No Cloud Code project available for this account')
+          throw new Error(
+            'No Cloud Code project available for this account. ' +
+              'This usually means the Google account has not been used with Code Assist before. ' +
+              'Try signing in with the Antigravity IDE once, or use a different Google account.'
+          )
         }
       }
 
