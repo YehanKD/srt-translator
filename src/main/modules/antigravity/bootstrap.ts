@@ -216,9 +216,14 @@ export async function onboardUser(
         // Non-JSON 200 — falls through to the BYOP check below.
       }
 
-      // A fast path: some accounts come back already done.
+      // A fast path: some accounts come back already done, and some return the
+      // project directly with no operation at all. Accept either — a project
+      // in the payload means success, and polling a non-existent operation
+      // would just burn the timeout.
       const immediate = projectFromOperation(data)
-      if (data.done === true && immediate) return immediate
+      if (immediate && (data.done === true || typeof data.name !== 'string')) {
+        return immediate
+      }
 
       // The usual path: an operation name to poll. Without this the project is
       // never created and sign-in fails for new accounts.
