@@ -17,6 +17,19 @@ function formatResetTime(resetAt: string | null): string {
 }
 
 export function QuotaModal({ quota, onClose, onRefresh }: Props) {
+  // Google exposes both a rolling 5-hour window and a weekly one per model
+  // group, but only the plan-appropriate one is meaningful: a paid plan's
+  // limit resets every 5 hours, while a free plan's resets weekly. Showing
+  // both (or always picking weekly) is what made Pro accounts display a
+  // reset days away. Mirrors how Omniroute presents it.
+  const isPaidPlan = !/^free$/i.test((quota.plan || '').trim())
+  const preferred = isPaidPlan ? '5h' : 'weekly'
+  const groupLimits = (() => {
+    const all = quota.weekly ?? []
+    const pick = all.filter((w) => w.window === preferred)
+    return pick.length > 0 ? pick : all
+  })()
+
   return (
     <div className="fixed inset-0 flex items-center justify-center bg-black/70 z-50 p-4">
       <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
@@ -84,20 +97,20 @@ export function QuotaModal({ quota, onClose, onRefresh }: Props) {
             </div>
           )}
 
-          {quota.weekly.length > 0 && (
+          {groupLimits.length > 0 && (
             <div>
-              <h4 className="text-sm font-medium text-gray-400 mb-3">Rate Limits</h4>
+              <h4 className="text-sm font-medium text-gray-400 mb-3">
+                Rate Limits
+                <span className="text-gray-600 font-normal">
+                  {' · '}
+                  {isPaidPlan ? '5-hour window' : 'weekly window'}
+                </span>
+              </h4>
               <div className="space-y-2">
-                {quota.weekly.map((w) => (
+                {groupLimits.map((w) => (
                   <div key={w.key} className="bg-gray-800/30 rounded-lg p-3 border border-gray-700/50">
                     <div className="flex justify-between items-center mb-1">
-                      <span className="text-sm text-gray-200">
-                        {w.displayName || w.key}
-                        <span className="text-gray-500">
-                          {' · '}
-                          {w.window === '5h' ? '5-hour' : w.window === 'weekly' ? 'Weekly' : ''}
-                        </span>
-                      </span>
+                      <span className="text-sm text-gray-200">{w.displayName || w.key}</span>
                       <span className="text-xs text-gray-500">
                         {w.unlimited ? 'Unlimited' : `${Math.round(w.remainingPercentage)}%`}
                       </span>
