@@ -99,10 +99,19 @@ export async function restoreSession(): Promise<boolean> {
 
 export async function getAccessToken(): Promise<string | null> {
   if (!session) return null
-  // If token is about to expire (within 5 min), refresh
+
   const now = Date.now()
-  if (session.expiresAt && now + 5 * 60 * 1000 >= session.expiresAt) {
-    if (!session.refreshToken) return null
+  // Treat a missing or zero expiry as "refresh now". `expiresAt: 0` is the
+  // sentinel set by restoreSession(), so testing the value for truthiness here
+  // would skip the refresh entirely and hand back an empty token.
+  const expiresAt = session.expiresAt ?? 0
+  const needsRefresh = now + 5 * 60 * 1000 >= expiresAt
+
+  if (needsRefresh) {
+    if (!session.refreshToken) {
+      // Nothing to refresh with — only usable if we already hold a live token.
+      return session.accessToken || null
+    }
     try {
       const tokens = await refreshAccessToken(session.refreshToken)
       session.accessToken = tokens.accessToken
@@ -124,7 +133,7 @@ export async function getAccessToken(): Promise<string | null> {
       return null
     }
   }
-  return session.accessToken
+  return session.accessToken || null
 }
 
 export async function logout(): Promise<void> {
