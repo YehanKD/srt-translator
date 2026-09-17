@@ -239,7 +239,8 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
         total: w.total,
         remainingPercentage: w.remainingPercentage,
         resetAt: w.resetAt,
-        unlimited: w.unlimited
+        unlimited: w.unlimited,
+        window: w.window
       }))
 
       return {

@@ -3,6 +3,7 @@ import {
   ANTIGRAVITY_LOAD_CODE_ASSIST_ENDPOINTS,
   ANTIGRAVITY_ONBOARD_USER_ENDPOINTS
 } from './constants'
+import { extractTier, planLabelFromTier } from './tier'
 
 export interface CodeAssistInfo {
   projectId: string
@@ -41,10 +42,10 @@ export async function loadCodeAssist(
 
       if (!projectId) return null
 
-      const tierId = extractTierId(data)
-      const plan = mapTierIdToPlan(tierId)
+      const tier = extractTier(data)
+      const plan = planLabelFromTier(tier)
 
-      return { projectId, tierId, plan }
+      return { projectId, tierId: tier?.id ?? 'free-tier', plan }
     } catch {
       // try next endpoint
     }
@@ -83,9 +84,9 @@ export async function onboardUser(
             ? String((project as { id: unknown }).id)
             : null
         if (projectId) {
-          const tier = extractTierId(data)
-          const plan = mapTierIdToPlan(tier)
-          return { projectId, tierId: tier, plan }
+          const tier = extractTier(data)
+          const plan = planLabelFromTier(tier)
+          return { projectId, tierId: tier?.id ?? 'free-tier', plan }
         }
       }
       // If not done, we could poll but for simplicity we treat as failure
@@ -112,38 +113,4 @@ export async function fetchUserInfo(accessToken: string): Promise<{ email: strin
   } catch {
     return null
   }
-}
-
-function extractTierId(data: Record<string, unknown>): string {
-  // Try currentTier, then allowedTiers default, then subscription tier
-  const currentTier = data.currentTier as Record<string, unknown> | undefined
-  if (currentTier?.id && typeof currentTier.id === 'string') return currentTier.id
-
-  const allowedTiers = data.allowedTiers as Array<Record<string, unknown>> | undefined
-  if (Array.isArray(allowedTiers)) {
-    for (const tier of allowedTiers) {
-      if (tier.isDefault === true && tier.id && typeof tier.id === 'string') {
-        return tier.id
-      }
-    }
-    if (allowedTiers.length > 0 && allowedTiers[0]?.id && typeof allowedTiers[0].id === 'string') {
-      return allowedTiers[0].id as string
-    }
-  }
-
-  const subscription = data.subscription as Record<string, unknown> | undefined
-  if (subscription?.tier && typeof subscription.tier === 'string') return subscription.tier
-
-  return 'free-tier'
-}
-
-function mapTierIdToPlan(tierId: string): string {
-  const upper = tierId.toUpperCase()
-  if (upper.includes('ULTRA')) return 'Ultra'
-  if (upper.includes('PRO') || upper.includes('PREMIUM') || upper.includes('GOOGLE_ONE')) return 'Pro'
-  if (upper.includes('ENTERPRISE')) return 'Enterprise'
-  if (upper.includes('BUSINESS') || upper.includes('STANDARD')) return 'Business'
-  if (upper.includes('PLUS')) return 'Plus'
-  if (upper.includes('LITE')) return 'Lite'
-  return 'Free'
 }

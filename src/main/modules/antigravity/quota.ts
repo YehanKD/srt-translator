@@ -1,5 +1,6 @@
 import { getAntigravityContentHeaders } from './headers'
 import { resolveAntigravityModelId, getAntigravityModelName, isDiscoverableAntigravityModelId } from './catalog'
+import { extractTier, planLabelFromTier } from './tier'
 import {
   ANTIGRAVITY_FETCH_AVAILABLE_MODELS_URLS,
   ANTIGRAVITY_RUNTIME_BASE_URLS,
@@ -252,14 +253,9 @@ export function parseWeeklyQuotas(data: Record<string, unknown>): WeeklyQuota[] 
   for (const groupRaw of groups) {
     const group = groupRaw as Record<string, unknown>
     const buckets = Array.isArray(group.buckets) ? group.buckets : []
-    const weeklyBucket = buckets.find(
-      (b) =>
-        b && typeof b === 'object' && /weekly/i.test(String((b as Record<string, unknown>).bucketId || '') + String((b as Record<string, unknown>).displayName || ''))
-    ) as Record<string, unknown> | undefined
+    const groupName = String(group.displayName || '').trim()
 
-    if (!weeklyBucket || weeklyBucket.disabled === true) continue
-
-    const key = String(group.displayName || '')
+    const key = groupName
       .toLowerCase()
       .replace(/\bmodels?\b/g, '')
       .replace(/\band\b/g, ' ')
@@ -267,25 +263,42 @@ export function parseWeeklyQuotas(data: Record<string, unknown>): WeeklyQuota[] 
       .replace(/^_+|_+$/g, '')
     if (!key) continue
 
-    const rawFraction = typeof weeklyBucket.remainingFraction === 'number' ? weeklyBucket.remainingFraction : -1
-    if (rawFraction < 0) continue
+    // Each group reports TWO windows: a rolling 5-hour limit and a weekly
+    // limit. Emit both — showing only the weekly one hid the reset the user
+    // actually hits during a session. Prefer the structured `window` field and
+    // fall back to the bucketId/displayName text for older responses.
+    for (const bucketRaw of buckets) {
+      if (!bucketRaw || typeof bucketRaw !== 'object') continue
+      const bucket = bucketRaw as Record<string, unknown>
+      if (bucket.disabled === true) continue
 
-    const fraction = Math.max(0, Math.min(1, rawFraction))
-    const resetAt = parseResetTime(weeklyBucket.resetTime)
-    const unlimited = !resetAt && fraction >= 1
-    const total = 1000
-    const remaining = Math.round(total * fraction)
-    const used = unlimited ? 0 : Math.max(0, total - remaining)
+      const text = `${String(bucket.bucketId || '')} ${String(bucket.displayName || '')} ${String(bucket.window || '')}`
+      const isWeekly = /weekly|7d/i.test(text)
+      const isFiveHour = /5h|5-hour|five.?hour/i.test(text)
+      if (!isWeekly && !isFiveHour) continue
 
-    result.push({
-      key: `${key}_weekly`,
-      displayName: String(group.displayName || '').trim() || key,
-      used,
-      total: unlimited ? 0 : total,
-      remainingPercentage: unlimited ? 100 : fraction * 100,
-      resetAt,
-      unlimited
-    })
+      const rawFraction = typeof bucket.remainingFraction === 'number' ? bucket.remainingFraction : -1
+      if (rawFraction < 0) continue
+
+      const fraction = Math.max(0, Math.min(1, rawFraction))
+      const resetAt = parseResetTime(bucket.resetTime)
+      const unlimited = !resetAt && fraction >= 1
+      const total = 1000
+      const remaining = Math.round(total * fraction)
+      const used = unlimited ? 0 : Math.max(0, total - remaining)
+      const suffix = isWeekly ? 'weekly' : '5h'
+
+      result.push({
+        key: `${key}_${suffix}`,
+        displayName: groupName || key,
+        used,
+        total: unlimited ? 0 : total,
+        remainingPercentage: unlimited ? 100 : fraction * 100,
+        resetAt,
+        unlimited,
+        window: suffix
+      })
+    }
   }
 
   return result
@@ -311,22 +324,14 @@ export async function fetchQuota(
   const models = parseAvailableModels(modelsData, quotaData)
   const weekly = parseWeeklyQuotas(summaryData)
 
-  // Extract plan from modelsData or quotaData
-  let plan = 'Free'
-  const modelsRecord = modelsData as Record<string, unknown>
-  const quotaRecord = quotaData as Record<string, unknown>
-  const tier = (modelsRecord.tier ?? quotaRecord.currentTier ?? modelsRecord.currentTier) as
-    | Record<string, unknown>
-    | undefined
-  if (tier?.id && typeof tier.id === 'string') {
-    const upper = tier.id.toUpperCase()
-    if (upper.includes('ULTRA')) plan = 'Ultra'
-    else if (upper.includes('PRO') || upper.includes('PREMIUM') || upper.includes('GOOGLE_ONE')) plan = 'Pro'
-    else if (upper.includes('ENTERPRISE')) plan = 'Enterprise'
-    else if (upper.includes('BUSINESS') || upper.includes('STANDARD')) plan = 'Business'
-    else if (upper.includes('PLUS')) plan = 'Plus'
-    else if (upper.includes('LITE')) plan = 'Lite'
-  }
+  // Extract plan. `loadCodeAssist` puts the paid subscription in `paidTier`
+  // (currentTier stays "free-tier" even for paying users), so prefer that —
+  // otherwise every subscriber is shown as Free.
+  const tier = extractTier({
+    ...(quotaData as Record<string, unknown>),
+    ...(modelsData as Record<string, unknown>)
+  })
+  const plan = planLabelFromTier(tier)
 
   return { models, weekly, plan }
 }

@@ -86,12 +86,18 @@ export function QuotaModal({ quota, onClose, onRefresh }: Props) {
 
           {quota.weekly.length > 0 && (
             <div>
-              <h4 className="text-sm font-medium text-gray-400 mb-3">Weekly Quota</h4>
+              <h4 className="text-sm font-medium text-gray-400 mb-3">Rate Limits</h4>
               <div className="space-y-2">
                 {quota.weekly.map((w) => (
                   <div key={w.key} className="bg-gray-800/30 rounded-lg p-3 border border-gray-700/50">
                     <div className="flex justify-between items-center mb-1">
-                      <span className="text-sm text-gray-200">{w.displayName || w.key}</span>
+                      <span className="text-sm text-gray-200">
+                        {w.displayName || w.key}
+                        <span className="text-gray-500">
+                          {' · '}
+                          {w.window === '5h' ? '5-hour' : w.window === 'weekly' ? 'Weekly' : ''}
+                        </span>
+                      </span>
                       <span className="text-xs text-gray-500">
                         {w.unlimited ? 'Unlimited' : `${Math.round(w.remainingPercentage)}%`}
                       </span>

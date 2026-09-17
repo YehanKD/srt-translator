@@ -131,6 +131,8 @@ export interface WeeklyQuota {
   remainingPercentage: number
   resetAt: string | null
   unlimited: boolean
+  /** Which rate-limit window this is: a rolling 5-hour limit or the weekly one. */
+  window?: 'weekly' | '5h'
 }
 
 export interface QuotaSummary {
