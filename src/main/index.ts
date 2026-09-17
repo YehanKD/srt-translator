@@ -5,10 +5,17 @@ import { registerIpcHandlers } from './ipc-handlers'
 
 // Must be set BEFORE app.whenReady(): on Linux, Electron's safeStorage only
 // reports encryption as available when it knows which keyring backend to use.
-// Without this it returns false even on a machine with a working
-// gnome-keyring/libsecret, so the saved session would never be written.
+// Its auto-detection keys off XDG_CURRENT_DESKTOP, which is often unset on
+// Wayland compositors (Hyprland/Omarchy), so it silently reports "unavailable"
+// even with a working gnome-keyring — and the saved session would never be
+// written. Point it at gnome-libsecret unless the user is clearly on KDE,
+// whose wallet uses a different backend.
 if (process.platform === 'linux') {
-  app.commandLine.appendSwitch('password-store', 'gnome-libsecret')
+  const desktop = `${process.env.XDG_CURRENT_DESKTOP ?? ''} ${process.env.KDE_FULL_SESSION ?? ''}`
+  const isKde = /kde|plasma/i.test(desktop)
+  if (!isKde && !process.argv.some((a) => a.startsWith('--password-store'))) {
+    app.commandLine.appendSwitch('password-store', 'gnome-libsecret')
+  }
 }
 
 let mainWindow: BrowserWindow | null = null

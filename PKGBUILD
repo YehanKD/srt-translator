@@ -13,7 +13,7 @@ optdepends=(
 options=('!strip')
 _appimage="SRT.Translator-${pkgver}.AppImage"
 source=("${url}/releases/download/v${pkgver}/${_appimage}")
-sha256sums=('c94c3a9cfbc2d7fd9f34063ebfdc2dfb34c0f6045ced29fa51bfd017a4284c19')
+sha256sums=('43f7c319981ea65b37a4a857e52fc3b614d5f897e9748ad2a0c59e3435b3aac9')
 
 prepare() {
   chmod +x "${srcdir}/${_appimage}"
