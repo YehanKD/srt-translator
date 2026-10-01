@@ -18,7 +18,7 @@ interface Props {
   defaultTitle: string
   settings: ApiSettings
   isActive: boolean
-  initialImport?: { entries: SubtitleEntry[]; fileName: string } | null
+  initialImport?: { entries: SubtitleEntry[]; fileName: string; sourceDir?: string } | null
   onInitialConsumed?: (tabId: string) => void
   onMkvDropped?: (mkvPath: string) => void
   onTabInfoChange: (tabId: string, info: TabViewInfo) => void
@@ -55,6 +55,8 @@ function loadBlurDefault(): boolean {
 export function TabView({ tabId, defaultTitle, settings, isActive, initialImport, onInitialConsumed, onMkvDropped, onTabInfoChange }: Props) {
   const [sourceEntries, setSourceEntries] = useState<SubtitleEntry[] | null>(null)
   const [sourceFileName, setSourceFileName] = useState('')
+  /** Folder of the source movie, so the export can default beside it. */
+  const [sourceDir, setSourceDir] = useState<string | undefined>(undefined)
   const [removedSoundCount, setRemovedSoundCount] = useState(0)
   const [removeSpeakerNames, setRemoveSpeakerNames] = useState(false)
   const [blurred, setBlurred] = useState<boolean>(loadBlurDefault)
@@ -83,6 +85,7 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
     if (!initialImport) return
     setSourceEntries(initialImport.entries)
     setSourceFileName(initialImport.fileName)
+    setSourceDir(initialImport.sourceDir)
     setRemovedSoundCount(0)
     reset()
     onInitialConsumed?.(tabId)
@@ -92,6 +95,7 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
   const handleImport = useCallback((entries: SubtitleEntry[], fileName: string) => {
     setSourceEntries(entries)
     setSourceFileName(fileName)
+    setSourceDir(undefined)
     setRemovedSoundCount(0)
     reset()
   }, [reset])
@@ -99,6 +103,7 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
   const handleNewFile = useCallback(() => {
     setSourceEntries(null)
     setSourceFileName('')
+    setSourceDir(undefined)
     setRemovedSoundCount(0)
     reset()
   }, [reset])
@@ -210,6 +215,7 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
             cancelled={cancelled}
             entries={translatedEntries}
             sourceFileName={sourceFileName}
+            sourceDir={sourceDir}
             onCancel={cancelTranslation}
           />
         </div>

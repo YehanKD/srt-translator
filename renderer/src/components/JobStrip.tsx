@@ -12,6 +12,12 @@ interface Props {
   /** Translated cues, once there are any to export. */
   entries: SubtitleEntry[] | null
   sourceFileName: string
+  /**
+   * Folder the source movie lives in. When set, the save dialog opens there so
+   * the exported subtitle lands beside the movie — which is what lets the
+   * player auto-load it (players match by filename within the same directory).
+   */
+  sourceDir?: string
   onCancel: () => void
 }
 
@@ -41,7 +47,7 @@ type SaveState = 'idle' | 'saving' | 'saved'
  * without blur reads as two words overlapping rather than one changing. The
  * meter uses linear timing — it's constant motion, where linear is correct.
  */
-export function JobStrip({ progress, error, incomplete, cancelled, entries, sourceFileName, onCancel }: Props) {
+export function JobStrip({ progress, error, incomplete, cancelled, entries, sourceFileName, sourceDir, onCancel }: Props) {
   const [save, setSave] = useState<SaveState>('idle')
   const [savedPath, setSavedPath] = useState<string | null>(null)
 
@@ -76,7 +82,18 @@ export function JobStrip({ progress, error, incomplete, cancelled, entries, sour
   const done = progress?.completedChunks ?? 0
   const percent = total > 0 ? Math.round((done / total) * 100) : 0
 
-  const suggestedName = sourceFileName.replace(/\.srt$/i, '.si.srt')
+  // Export name.
+  //
+  // When the source came from an MKV, the subtitle must be named EXACTLY after
+  // the movie ("Movie.mkv" -> "Movie.srt") so players auto-load it. Any suffix
+  // in between breaks that, so no ".si" is added here.
+  //
+  // For a plain .srt import there is no movie to match, and dropping the suffix
+  // would suggest overwriting the user's own source file — so the ".si" marker
+  // stays to keep the translation distinct.
+  const suggestedName = sourceDir
+    ? sourceFileName
+    : sourceFileName.replace(/\.srt$/i, '.si.srt')
 
   const meta: Record<Tone, { label: string; color: string; chip: string }> = {
     working: { label: 'Translating', color: 'var(--t-teal)', chip: 'chip-accent' },
@@ -102,7 +119,7 @@ export function JobStrip({ progress, error, incomplete, cancelled, entries, sour
     setSave('saving')
     setSavedPath(null)
     try {
-      const result = await window.electronAPI.exportSrt(entries, suggestedName)
+      const result = await window.electronAPI.exportSrt(entries, suggestedName, sourceDir)
       if (result.success && result.data) {
         setSavedPath(result.data)
         setSave('saved')

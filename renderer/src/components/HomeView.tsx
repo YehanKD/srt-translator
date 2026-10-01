@@ -4,7 +4,8 @@ import { Modal, ModalHeader, ModalFooter } from './Modal'
 import { IconMessageSquareText, IconUpload, IconAlert } from './Icons'
 
 interface Props {
-  onLoaded: (entries: SubtitleEntry[], fileName: string) => void
+  /** sourceDir (when known) lets the export default beside the movie. */
+  onLoaded: (entries: SubtitleEntry[], fileName: string, sourceDir?: string) => void
   initialMkvPath?: string | null
   onMkvPathConsumed?: () => void
 }
@@ -101,8 +102,8 @@ export function HomeView({ onLoaded, initialMkvPath, onMkvPathConsumed }: Props)
     try {
       const res = await window.electronAPI.extractMkvTrack(mkvPath, selectedId)
       if (res.success && res.data) {
-        const r = res.data as { fileName: string; entries: SubtitleEntry[] }
-        onLoaded(r.entries, r.fileName)
+        const r = res.data as { fileName: string; sourceDir?: string; entries: SubtitleEntry[] }
+        onLoaded(r.entries, r.fileName, r.sourceDir)
         return
       }
       setError(res.error || 'Extraction failed.')

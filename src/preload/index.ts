@@ -39,8 +39,8 @@ const electronAPI: ElectronAPI = {
   // ─── Files ────────────────────────────────────────────────────────────
   pickInput: () => ipcRenderer.invoke(IPC_CHANNELS.IMPORT_SRT),
   importSrtFromPath: (filePath: string) => ipcRenderer.invoke(IPC_CHANNELS.IMPORT_SRT_PATH, filePath),
-  exportSrt: (entries: SubtitleEntry[], suggestedName: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.EXPORT_SRT, entries, suggestedName),
+  exportSrt: (entries: SubtitleEntry[], suggestedName: string, suggestedDir?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.EXPORT_SRT, entries, suggestedName, suggestedDir),
   selectMkv: () => ipcRenderer.invoke(IPC_CHANNELS.SELECT_MKV),
   listMkvTracks: (mkvPath: string) => ipcRenderer.invoke(IPC_CHANNELS.LIST_MKV_TRACKS, mkvPath),
   extractMkvTrack: (mkvPath: string, trackId: number) =>

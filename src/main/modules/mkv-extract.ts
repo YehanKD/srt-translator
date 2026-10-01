@@ -3,7 +3,7 @@ import { promisify } from 'util'
 import { existsSync } from 'fs'
 import { mkdtemp, readFile, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
-import { join, basename, extname } from 'path'
+import { join, basename, dirname, extname } from 'path'
 import { parseSrt } from './srt-parser'
 import type { SubtitleEntry } from '@shared/types'
 
@@ -163,6 +163,8 @@ function subtitleExtensionFor(codecId: string): string {
 
 export interface MkvExtractionResult {
   fileName: string
+  /** Folder the MKV lives in — used to default the export dialog there. */
+  sourceDir?: string
   entries: SubtitleEntry[]
 }
 
@@ -197,10 +199,17 @@ export async function extractMkvSubtitleTrack(
       throw new Error(`Extracted subtitle track ${track.id} is empty or unreadable.`)
     }
 
+    // Name the extracted subtitle EXACTLY after the MKV (no track label).
+    //
+    // It previously read `${mkvBase} - ${label}.srt`, which produced names like
+    // "Movie.Name.2024 - ENGLISH.srt". Exported next to the movie that never
+    // matches, so the player would not pick the subtitle up automatically.
+    // Keeping the base name identical to the MKV means the exported
+    // "...si.srt" sits beside "....mkv" and every player auto-loads it.
     const mkvBase = basename(mkvPath, extname(mkvPath))
-    const label = track.trackName || track.language.toUpperCase() || 'track'
-    const fileName = `${mkvBase} - ${label}.srt`
-    return { fileName, entries }
+    // The movie's own folder, so the export dialog can default there. A
+    // matching filename in the wrong folder is still not auto-loaded.
+    return { fileName: `${mkvBase}.srt`, sourceDir: dirname(mkvPath), entries }
   } finally {
     rm(tmpDir, { recursive: true, force: true }).catch(() => {})
   }

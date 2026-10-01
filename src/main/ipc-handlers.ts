@@ -17,7 +17,7 @@ import {
 } from './modules/antigravity/oauth'
 import { getSession, setSession, clearSession, getAccount, getAccessToken, logout, restoreSession } from './modules/antigravity/session'
 import { canPersistSession } from './modules/antigravity/storage'
-import { loadCodeAssist, onboardUser, fetchUserInfo, discoverAccount } from './modules/antigravity/bootstrap'
+import { loadCodeAssist, onboardUser, fetchUserInfo, discoverAccount, emailFromIdToken } from './modules/antigravity/bootstrap'
 import { fetchQuota } from './modules/antigravity/quota'
 import { pickChatModels, ANTIGRAVITY_PUBLIC_MODELS, ANTIGRAVITY_DEFAULT_MODEL_ID } from './modules/antigravity/catalog'
 
@@ -58,6 +58,21 @@ function friendlyError(err: unknown): string {
 
   console.error('[srt-translator] unhandled error:', err)
   return raw || 'Something went wrong. Please try again.'
+}
+
+/**
+ * Choose the plan label to report for an account.
+ *
+ * 'Free' is a *default*, not information — treating it as a real answer let it
+ * shadow a paid plan resolved elsewhere, which flipped the UI to the weekly
+ * quota window. Prefer any label that actually identifies a tier.
+ */
+function pickPlanLabel(sessionPlan: string | undefined, quotaPlan: string | undefined): string {
+  const informative = (v: string | undefined): boolean =>
+    !!v && v.trim().length > 0 && !/^free$/i.test(v.trim())
+  if (informative(sessionPlan)) return sessionPlan as string
+  if (informative(quotaPlan)) return quotaPlan as string
+  return sessionPlan?.trim() || quotaPlan?.trim() || 'Free'
 }
 
 function clearAuthTimeout(): void {
@@ -139,10 +154,21 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
 
       emitAuthProgress(window, { phase: 'onboarding', message: 'Loading account info...' })
 
-      // Fetch user info
-      const userInfo = await fetchUserInfo(tokens.accessToken)
+      // Account email is a DISPLAY LABEL, not a credential. Failing the whole
+      // sign-in because it could not be fetched was wrong: the token is valid,
+      // and the user cannot fix a userinfo outage by signing in again. Fall
+      // back to the id_token claim, then to a placeholder.
+      const userInfo =
+        (await fetchUserInfo(tokens.accessToken)) ??
+        (emailFromIdToken(tokens.idToken)
+          ? { email: emailFromIdToken(tokens.idToken) as string }
+          : null)
+
       if (!userInfo) {
-        throw new Error('Could not fetch user info')
+        // Every source failed. Continue anyway — quota and translation only
+        // need the token and project, and the UI renders 'Unknown' for a
+        // missing email.
+        console.warn('[srt-translator] could not resolve account email; continuing')
       }
 
       // Discover the Cloud Code project. A missing project must NOT fail the
@@ -178,8 +204,8 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
         expiresAt: tokens.expiresIn ? Date.now() + tokens.expiresIn * 1000 : undefined,
-        email: userInfo.email,
-        picture: userInfo.picture,
+        email: userInfo?.email ?? '',
+        picture: userInfo?.picture,
         plan: discovery.plan,
         projectId: discovery.projectId,
         tierId: discovery.tierId,
@@ -306,8 +332,15 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
         success: true,
         data: {
           // The quota RPCs don't carry the tier, so trust the plan resolved at
-          // sign-in (from loadCodeAssist's paidTier) over their empty default.
-          plan: session.plan || result.plan,
+          // sign-in (from loadCodeAssist's paidTier) — but ONLY when it is
+          // actually informative.
+          //
+          // `session.plan || result.plan` was wrong because 'Free' is truthy:
+          // a session whose plan failed to resolve at sign-in permanently
+          // shadowed the quota RPC's correct "Google AI Pro". The UI then
+          // treated the account as free and showed the WEEKLY limit, so a paid
+          // plan displayed a reset ~6 days away instead of its 5-hour one.
+          plan: pickPlanLabel(session.plan, result.plan),
           models,
           weekly,
           credits: null,
@@ -391,10 +424,10 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.EXPORT_SRT, async (_event, entries: SubtitleEntry[], suggestedName: string): Promise<IpcResponse> => {
+  ipcMain.handle(IPC_CHANNELS.EXPORT_SRT, async (_event, entries: SubtitleEntry[], suggestedName: string, suggestedDir?: string): Promise<IpcResponse> => {
     try {
       const content = serializeSrt(entries)
-      const savedPath = await exportSrtFile(content, suggestedName)
+      const savedPath = await exportSrtFile(content, suggestedName, suggestedDir)
       return { success: true, data: savedPath }
     } catch (err: unknown) {
       return { success: false, error: friendlyError(err) }

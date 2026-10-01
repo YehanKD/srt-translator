@@ -91,6 +91,8 @@ export interface MkvSubtitleTrack {
 
 export interface MkvExtractionResult {
   fileName: string
+  /** Folder the MKV lives in — used to default the export dialog there. */
+  sourceDir?: string
   entries: SubtitleEntry[]
 }
 
@@ -187,7 +189,7 @@ export interface ElectronAPI {
   /** Combined picker: accepts .srt and .mkv, classified by extension. */
   pickInput: () => Promise<IpcResponse<PickedInput | null>>
   importSrtFromPath: (filePath: string) => Promise<IpcResponse<ImportResult>>
-  exportSrt: (entries: SubtitleEntry[], suggestedName: string) => Promise<IpcResponse<string>>
+  exportSrt: (entries: SubtitleEntry[], suggestedName: string, suggestedDir?: string) => Promise<IpcResponse<string>>
   selectMkv: () => Promise<IpcResponse<string | null>>
   listMkvTracks: (mkvPath: string) => Promise<IpcResponse<MkvSubtitleTrack[]>>
   extractMkvTrack: (mkvPath: string, trackId: number) => Promise<IpcResponse<MkvExtractionResult>>

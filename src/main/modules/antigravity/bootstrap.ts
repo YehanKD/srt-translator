@@ -265,17 +265,61 @@ export async function onboardUser(
 
 /**
  * Fetch user info (email) from Google.
+ *
+ * Best-effort: the email is a display label, not a credential. The caller must
+ * NOT fail sign-in when this is unavailable — see fetchUserInfoWithFallback.
+ *
+ * Tries several endpoints because the OAuth2 userinfo surface has been moving:
+ * `oauth2/v1/userinfo` is the legacy path, `oauth2/v2/userinfo` its successor,
+ * and `openidconnect/v1/userinfo` the OpenID-Connect equivalent. A 401/403 from
+ * one does not mean the token is bad — only that endpoint declined it.
  */
-export async function fetchUserInfo(accessToken: string): Promise<{ email: string; picture?: string } | null> {
+const USERINFO_ENDPOINTS = [
+  'https://openidconnect.googleapis.com/v1/userinfo',
+  'https://www.googleapis.com/oauth2/v2/userinfo',
+  'https://www.googleapis.com/oauth2/v1/userinfo?alt=json'
+]
+
+const USERINFO_TIMEOUT_MS = 8000
+
+export async function fetchUserInfo(
+  accessToken: string
+): Promise<{ email: string; picture?: string } | null> {
+  for (const endpoint of USERINFO_ENDPOINTS) {
+    try {
+      const response = await fetch(endpoint, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(USERINFO_TIMEOUT_MS)
+      })
+      if (!response.ok) continue
+
+      const data = (await response.json()) as { email?: string; picture?: string }
+      if (!data.email) continue
+
+      return { email: data.email, picture: data.picture }
+    } catch {
+      // try the next endpoint
+    }
+  }
+  return null
+}
+
+/**
+ * Read the email out of an id_token (a JWT) without verifying it.
+ *
+ * This is a display label taken from a token Google just handed us over TLS —
+ * not an authorization decision — so decoding the payload locally is safe and
+ * avoids a network round-trip entirely. Used as the fallback when every
+ * userinfo endpoint is unavailable.
+ */
+export function emailFromIdToken(idToken: string | undefined): string | null {
+  if (!idToken) return null
   try {
-    const response = await fetch('https://www.googleapis.com/oauth2/v1/userinfo?alt=json', {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      signal: AbortSignal.timeout(5000)
-    })
-    if (!response.ok) return null
-    const data = await response.json() as { email?: string; picture?: string }
-    if (!data.email) return null
-    return { email: data.email, picture: data.picture }
+    const payload = idToken.split('.')[1]
+    if (!payload) return null
+    const json = Buffer.from(payload.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf-8')
+    const claims = JSON.parse(json) as { email?: string }
+    return typeof claims.email === 'string' && claims.email ? claims.email : null
   } catch {
     return null
   }

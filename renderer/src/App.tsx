@@ -77,8 +77,8 @@ export default function App() {
 
   const selectTab = useCallback((id: string) => setActiveTabId(id), [])
 
-  const loadIntoTab = useCallback((tabId: string, entries: SubtitleEntry[], fileName: string) => {
-    setTabInitial((prev) => ({ ...prev, [tabId]: { entries, fileName } }))
+  const loadIntoTab = useCallback((tabId: string, entries: SubtitleEntry[], fileName: string, sourceDir?: string) => {
+    setTabInitial((prev) => ({ ...prev, [tabId]: { entries, fileName, sourceDir } }))
     setTabViewState((prev) => ({ ...prev, [tabId]: 'workspace' }))
     setActiveTabId(tabId)
   }, [])
@@ -162,6 +162,7 @@ export default function App() {
       <AccountStatusBar
         status={status}
         quota={quota}
+        modelId={selectedModelId}
         loading={loading}
         error={error}
         canPersist={canPersist}
@@ -178,7 +179,7 @@ export default function App() {
           {activeTabHome && (
             <HomeView
               key={activeTabId}
-              onLoaded={(entries, fileName) => loadIntoTab(activeTabId, entries, fileName)}
+              onLoaded={(entries, fileName, sourceDir) => loadIntoTab(activeTabId, entries, fileName, sourceDir)}
               initialMkvPath={pendingMkvByTab[activeTabId] ?? null}
               onMkvPathConsumed={() => clearMkvPath(activeTabId)}
             />

@@ -1,6 +1,6 @@
 import { dialog } from 'electron'
 import { readFile, writeFile } from 'fs/promises'
-import { basename } from 'path'
+import { basename, join } from 'path'
 
 /**
  * One dialog for both input kinds. The user shouldn't have to know whether a
@@ -60,9 +60,25 @@ export async function selectMkvFile(): Promise<string | null> {
   return result.filePaths[0]
 }
 
-export async function exportSrtFile(content: string, suggestedName: string): Promise<string | null> {
+/**
+ * Save the translated subtitles.
+ *
+ * `suggestedName` is a bare filename and `suggestDir` its intended folder. The
+ * folder matters for auto-loading: players match a subtitle to a movie by
+ * filename *in the same directory*, so defaulting to the movie's own folder
+ * (when we know it) is what makes the exported file get picked up on play.
+ */
+export async function exportSrtFile(
+  content: string,
+  suggestedName: string,
+  suggestedDir?: string
+): Promise<string | null> {
+  const defaultPath = suggestedDir
+    ? join(suggestedDir, suggestedName)
+    : suggestedName
+
   const result = await dialog.showSaveDialog({
-    defaultPath: suggestedName,
+    defaultPath,
     filters: [{ name: 'SRT Subtitles', extensions: ['srt'] }]
   })
 

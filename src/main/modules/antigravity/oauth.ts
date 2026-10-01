@@ -7,6 +7,8 @@ export interface OAuthTokens {
   accessToken: string
   refreshToken?: string
   expiresIn?: number
+  /** Present when Google issues one; carries the account email as a claim. */
+  idToken?: string
 }
 
 export class OAuthError extends Error {
@@ -160,7 +162,8 @@ export async function exchangeCodeForTokens(
   return {
     accessToken: data.access_token as string,
     refreshToken: typeof data.refresh_token === 'string' ? data.refresh_token : undefined,
-    expiresIn: typeof data.expires_in === 'number' ? (data.expires_in as number) : undefined
+    expiresIn: typeof data.expires_in === 'number' ? (data.expires_in as number) : undefined,
+    idToken: typeof data.id_token === 'string' ? (data.id_token as string) : undefined
   }
 }
 

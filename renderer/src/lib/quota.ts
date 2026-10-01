@@ -13,6 +13,25 @@ export function tightest(models: QuotaSummary['models']): ModelQuota | null {
   )
 }
 
+/**
+ * Quota for one specific model.
+ *
+ * The header must report the model this app actually translates with. Taking
+ * the *tightest* across every model was wrong: an account also reports Claude
+ * and GPT models it may never have touched, and one of those sitting at 0%
+ * made the bar read "0% left" while the Gemini model in use was at 100%.
+ * The reset time was wrong for the same reason.
+ */
+export function quotaForModel(
+  models: QuotaSummary['models'],
+  modelId: string | null | undefined
+): ModelQuota | null {
+  if (!modelId) return null
+  const match = models.find((m) => m.id === modelId)
+  if (!match || match.unlimited || !match.fractionReported) return null
+  return match
+}
+
 /** Compact countdown: "45m", "3h 13m", "2d". */
 export function relativeReset(resetAt: string | null): string | null {
   if (!resetAt) return null

@@ -79,7 +79,10 @@ export function QuotaModal({ quota, onClose, onRefresh }: Props) {
   const preferred = isPaidPlan ? '5h' : 'weekly'
   const allLimits = quota.weekly ?? []
   const picked = allLimits.filter((w) => w.window === preferred)
-  const groupLimits = picked.length > 0 ? picked : allLimits
+  // A paid plan must never fall back to the weekly window: showing "resets in
+  // 6d" to a Pro account reads as though its 5-hour limit is gone. If the
+  // expected window is absent, show nothing rather than the wrong one.
+  const groupLimits = picked.length > 0 ? picked : isPaidPlan ? [] : allLimits
 
   const handleRefresh = async () => {
     setRefreshing(true)

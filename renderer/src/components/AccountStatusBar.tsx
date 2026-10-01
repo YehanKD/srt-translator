@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import type { QuotaSummary } from '@shared/types'
 import { ConfirmModal } from './ConfirmModal'
-import { relativeReset, tightest } from '../lib/quota'
+import { relativeReset, quotaForModel } from '../lib/quota'
 import { IconSliders, IconSpinner, IconLogout, IconRefresh } from './Icons'
 
 interface Props {
   status: { signedIn: boolean; account: { email: string; plan: string } | null; needsReauth?: boolean }
   quota: QuotaSummary | null
+  /** The model the app is translating with — the header reports ITS quota. */
+  modelId: string | null
   loading: boolean
   error: string | null
   /** false = no OS keyring, so the sign-in can't be remembered across launches. */
@@ -37,6 +39,7 @@ function GoogleGlyph() {
 export function AccountStatusBar({
   status,
   quota,
+  modelId,
   loading,
   error,
   canPersist = true,
@@ -85,7 +88,7 @@ export function AccountStatusBar({
   const plan = status.account?.plan || 'Free'
   const initial = email.charAt(0).toUpperCase() || '?'
 
-  const t = quota ? tightest(quota.models) : null
+  const t = quota ? quotaForModel(quota.models, modelId) : null
   const reset = relativeReset(t?.resetAt ?? null)
   const pct = t ? Math.round(t.remainingPercentage) : null
 
