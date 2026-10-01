@@ -5,6 +5,7 @@ import { Switch } from './Switch'
 import { JobStrip } from './JobStrip'
 import { useTranslation } from '../hooks/useTranslation'
 import { IconGlobe, IconFilePlus, IconTrash } from './Icons'
+import { stripSoundCues } from '../lib/sound-cues'
 import type { SubtitleEntry, ApiSettings } from '@shared/types'
 
 export interface TabViewInfo {
@@ -24,7 +25,6 @@ interface Props {
   onTabInfoChange: (tabId: string, info: TabViewInfo) => void
 }
 
-const SOUND_CUE_RE = /^\s*(?:\([\s\S]*?\)|\[[\s\S]*?\])\s*$/
 const SPEAKER_RE = /(?<=^|\s)(?:-\s*)?[A-Z][A-Z0-9 .'&#()\-]{1,50}?:/g
 
 function stripSpeakerNames(entries: SubtitleEntry[]): SubtitleEntry[] {
@@ -58,6 +58,8 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
   /** Folder of the source movie, so the export can default beside it. */
   const [sourceDir, setSourceDir] = useState<string | undefined>(undefined)
   const [removedSoundCount, setRemovedSoundCount] = useState(0)
+  /** Extra detail about what the last sound-cue pass cleaned, when it did both. */
+  const [lastRemovedDetail, setLastRemovedDetail] = useState<string | null>(null)
   const [removeSpeakerNames, setRemoveSpeakerNames] = useState(false)
   const [blurred, setBlurred] = useState<boolean>(loadBlurDefault)
 
@@ -120,10 +122,18 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
 
   const handleRemoveSoundLines = useCallback(() => {
     if (!sourceEntries) return
-    const kept = sourceEntries.filter((e) => !SOUND_CUE_RE.test(e.text))
-    const removed = sourceEntries.length - kept.length
+    // Sound cues hide in more shapes than "one bracketed run per cue": dashes,
+    // tags beside dialogue, and tags spanning a line. lib/sound-cues handles all
+    // of them and reports how much it did, so the count matches what the user sees.
+    const result = stripSoundCues(sourceEntries)
+    const removed = result.removedCues + result.cleanedCues
     setRemovedSoundCount((prev) => prev + removed)
-    setSourceEntries(kept.map((e, i) => ({ ...e, id: String(i + 1) })))
+    setLastRemovedDetail(
+      result.cleanedCues > 0
+        ? `${result.removedCues} sound-only lines removed, ${result.cleanedCues} more cleaned (${result.removedTags} descriptions in total)`
+        : null
+    )
+    setSourceEntries(result.entries)
     reset()
   }, [sourceEntries, reset])
 
@@ -185,7 +195,10 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
           {removedSoundCount > 0 && sourceEntries && (
             <p className="text-sm text-warn-text">
               Removed {removedSoundCount} background sound line{removedSoundCount === 1 ? '' : 's'} —
-              they won't be translated.
+              they won't be translated.{' '}
+              {lastRemovedDetail && (
+                <span className="text-text-muted">({lastRemovedDetail})</span>
+              )}
             </p>
           )}
 
