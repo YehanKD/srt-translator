@@ -52,6 +52,7 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.send(IPC_CHANNELS.START_TRANSLATION, entries, settings, jobId)
   },
   cancelTranslation: (jobId: string) => ipcRenderer.invoke(IPC_CHANNELS.CANCEL_TRANSLATION, jobId),
+  openLog: () => ipcRenderer.invoke(IPC_CHANNELS.OPEN_LOG),
 
   onTranslationProgress: (callback: (progress: TranslationProgress) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: TranslationProgress) => callback(data)

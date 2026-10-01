@@ -10,6 +10,8 @@ export interface OverallProgress {
   /** Honest cue-level progress. `partialResult.length` is always full length. */
   translatedCues?: number
   totalCues?: number
+  /** Chunks restored from a checkpoint — reused work, not re-sent this run. */
+  resumedChunks?: number
 }
 
 /** Set when a job finished with some chunks permanently failed. */
@@ -66,7 +68,8 @@ export function useTranslation(jobId: string) {
         activeChunks: p.activeChunks ?? (p.status === 'sending' ? 1 : 0),
         errorMessage: p.errorMessage,
         translatedCues: p.translatedCues,
-        totalCues: p.totalCues
+        totalCues: p.totalCues,
+        resumedChunks: p.resumedChunks
       })
 
       if (p.status === 'received' && p.partialResult && p.partialResult.length > 0) {

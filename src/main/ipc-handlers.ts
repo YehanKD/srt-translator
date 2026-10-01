@@ -1,11 +1,13 @@
-import { ipcMain, BrowserWindow } from 'electron'
+import { ipcMain, BrowserWindow, shell } from 'electron'
 import { IPC_CHANNELS } from '@shared/constants'
 import type { SubtitleEntry, ApiSettings, IpcResponse, AuthProgress, AccountStatus, QuotaSummary } from '@shared/types'
 import { readFile } from 'fs/promises'
-import { basename } from 'path'
+import { basename, dirname } from 'path'
 import { pickInputFile, readSrtFile, exportSrtFile, selectMkvFile } from './modules/file-io'
 import { parseSrt, serializeSrt } from './modules/srt-parser'
 import { translateAll, TranslationIncompleteError } from './modules/translation-engine'
+import { log, logFilePath } from './modules/logger'
+import { pruneCheckpoints } from './modules/translation-checkpoint'
 
 // Antigravity modules
 import {
@@ -484,12 +486,14 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     const window = getWindow()
     const controller = new AbortController()
     jobs.set(jobId, controller)
+    log.info(`translation started — job ${jobId}, ${entries.length} cues, model ${settings.modelId}`)
 
     try {
       const results = await translateAll({
         entries,
         settings,
         signal: controller.signal,
+        sourceName: (settings as { sourceName?: string }).sourceName,
         onProgress: (progress) => {
           if (window && !window.isDestroyed()) {
             window.webContents.send(IPC_CHANNELS.TRANSLATION_PROGRESS, { ...progress, jobId })
@@ -498,6 +502,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
       })
 
       jobs.delete(jobId)
+      log.info(`translation complete — job ${jobId}, ${results.length} cues`)
       if (window && !window.isDestroyed()) {
         window.webContents.send(IPC_CHANNELS.TRANSLATION_COMPLETE, { success: true, data: results, jobId })
       }
@@ -526,6 +531,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
       // A partially-complete job carries the chunks that DID translate, so the
       // user keeps that work but is clearly told the rest is untranslated.
       const incomplete = err instanceof TranslationIncompleteError ? err : null
+      log.error(`translation failed — job ${jobId}:`, err)
       if (window && !window.isDestroyed()) {
         window.webContents.send(IPC_CHANNELS.TRANSLATION_COMPLETE, {
           success: false,
@@ -557,4 +563,24 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
       return { success: false, error: friendlyError(err) }
     }
   })
+
+  ipcMain.handle(IPC_CHANNELS.OPEN_LOG, async (): Promise<IpcResponse> => {
+    try {
+      const path = logFilePath()
+      if (!path) return { success: false, error: 'Logging is unavailable on this system.' }
+      // Reveal the file itself so the user can attach it to a report; fall back
+      // to the folder when the file does not exist yet (nothing logged).
+      const err = await shell.openPath(path)
+      if (err) {
+        const folderErr = await shell.openPath(dirname(path))
+        if (folderErr) return { success: false, error: folderErr }
+      }
+      return { success: true, data: path }
+    } catch (err: unknown) {
+      return { success: false, error: friendlyError(err) }
+    }
+  })
+
+  // Housekeeping: drop stale checkpoints so they cannot accumulate forever.
+  pruneCheckpoints()
 }

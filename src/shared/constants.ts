@@ -41,6 +41,8 @@ export const IPC_CHANNELS = {
   QUOTA_GET: 'quota-get',
   QUOTA_REFRESH: 'quota-refresh',
   LIST_MODELS: 'list-models',
+  // Diagnostics — open the log file / its folder for bug reports.
+  OPEN_LOG: 'open-log',
   // Files
   IMPORT_SRT: 'import-srt',
   IMPORT_SRT_PATH: 'import-srt-path',

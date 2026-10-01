@@ -79,7 +79,9 @@ export function JobStrip({ progress, error, incomplete, cancelled, entries, sour
           : 'done'
 
   const total = progress?.totalChunks ?? 0
-  const done = progress?.completedChunks ?? 0
+  // Resumed chunks were never sent this run, so they emit no 'received' event —
+  // without adding them back the bar would start part-way and read low.
+  const done = (progress?.completedChunks ?? 0) + (progress?.resumedChunks ?? 0)
   const percent = total > 0 ? Math.round((done / total) * 100) : 0
 
   // Export name.
@@ -168,7 +170,17 @@ export function JobStrip({ progress, error, incomplete, cancelled, entries, sour
             spinner and the chip already say "Translating", and a third grey
             line saying the same thing was noise. */}
         <span className="min-w-0 flex-1">
-          {tone === 'working' ? null : hasEntries ? (
+          {tone === 'working' ? (
+            // Resuming is the one thing worth saying while working: the bar
+            // starts part-filled, and without this the user wonders why.
+            (progress?.resumedChunks ?? 0) > 0 ? (
+              <span className="block truncate text-base text-text-body">
+                Resumed —{' '}
+                <span className="nums font-semibold">{progress!.resumedChunks}</span> of{' '}
+                <span className="nums">{total}</span> chunks already done
+              </span>
+            ) : null
+          ) : hasEntries ? (
             <span className="block truncate text-base text-text">
               <span className="nums font-semibold">{entries!.length}</span> cues ready
               {savedPath ? (

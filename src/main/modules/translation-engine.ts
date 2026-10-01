@@ -4,6 +4,13 @@ import { buildMessages } from './prompt-builder'
 import { sendAntigravityWithFallback, AntigravityApiError, AntigravityModelError } from './antigravity/transport'
 import type { AntigravityMessage } from './antigravity/transport'
 import { parseSrt, cleanAiResponse } from './srt-parser'
+import { log } from './logger'
+import {
+  fingerprintJob,
+  loadCheckpoint,
+  saveCheckpoint,
+  clearCheckpoint
+} from './translation-checkpoint'
 
 /**
  * Cancellation signal.
@@ -72,6 +79,14 @@ interface TranslateAllParams {
   settings: ApiSettings
   onProgress: (progress: TranslationProgress) => void
   signal: AbortSignal
+  /** Source filename, recorded with the checkpoint so the UI can name it. */
+  sourceName?: string
+}
+
+/** Reported back to the caller when a job resumes from a checkpoint. */
+export interface ResumeInfo {
+  resumedChunks: number
+  totalChunks: number
 }
 
 /**
@@ -83,6 +98,12 @@ interface TranslateAllParams {
  * 3. The final result is flattened from `settled[]` in index order after all chunks settle.
  * 4. A shared `nextChunk` counter hands every chunk to the pool exactly once.
  * 5. Per-chunk index-based matching (keep original ids/timestamps, take only translated text).
+ *
+ * Resumability:
+ * - Completed chunks are written to a checkpoint keyed by a fingerprint of the
+ *   input cues plus the model id, so a crash, a closed window or a cancel does
+ *   not throw away work already paid for in quota. A resumed run skips the
+ *   chunks it already has and reports how many it recovered.
  *
  * Adaptive concurrency:
  * - Starts at CONCURRENCY (6) in-flight requests — the known-safe floor.
@@ -96,7 +117,7 @@ interface TranslateAllParams {
  * main speed lever, and a 429 pulls it straight back down.
  */
 export async function translateAll(params: TranslateAllParams): Promise<SubtitleEntry[]> {
-  const { entries, settings, onProgress, signal } = params
+  const { entries, settings, onProgress, signal, sourceName } = params
   const chunks = chunkArray(entries, CHUNK_SIZE)
   const totalChunks = chunks.length
   if (totalChunks === 0) return []
@@ -105,6 +126,55 @@ export async function translateAll(params: TranslateAllParams): Promise<Subtitle
   // Chunks that used up every retry. Non-empty at the end => the job FAILED and
   // must be reported as such (never as a successful run that produced English).
   const failedChunks = new Set<number>()
+  // Chunks that genuinely hold TRANSLATED text. `settled` cannot be used for
+  // this: failures and aborts settle their slot with the ORIGINAL cues so the
+  // preview stays full-length, and checkpointing one of those would mark an
+  // untranslated chunk as done — a later resume would then skip it and export
+  // English. Only indices in this set are ever persisted.
+  const translatedOk = new Set<number>()
+
+  // Resume: seed slots from a checkpoint so chunks already paid for are skipped.
+  // Keyed by cues + model, so a different file or model never inherits this work.
+  const fingerprint = fingerprintJob(entries, settings.modelId)
+  const prior = loadCheckpoint(fingerprint)
+  let resumedChunks = 0
+  if (prior && prior.totalChunks === totalChunks) {
+    for (let i = 0; i < totalChunks; i++) {
+      const saved = prior.chunks[String(i)]
+      // Only accept a chunk whose cue count matches, so a changed input cannot
+      // be spliced in with stale text.
+      if (saved && saved.length === chunks[i].length) {
+        settled[i] = saved
+        translatedOk.add(i)
+        resumedChunks++
+      }
+    }
+  }
+  if (resumedChunks > 0) {
+    log.info(`resuming: ${resumedChunks}/${totalChunks} chunks restored from checkpoint`)
+  }
+
+  const checkpointState = (): void => {
+    const chunksOut: Record<string, SubtitleEntry[]> = {}
+    for (let i = 0; i < totalChunks; i++) {
+      // NEVER checkpoint a failed chunk. runChunk settles failures with the
+      // ORIGINAL text so the preview stays full-length — persisting that would
+      // mark an untranslated chunk as done, and a later resume would skip it and
+      // export English. Only genuinely translated chunks may be stored.
+      if (failedChunks.has(i)) continue
+      if (!translatedOk.has(i)) continue
+      const s = settled[i]
+      if (s) chunksOut[String(i)] = s
+    }
+    saveCheckpoint({
+      fingerprint,
+      chunks: chunksOut,
+      totalChunks,
+      modelId: settings.modelId,
+      sourceName,
+      savedAt: Date.now()
+    })
+  }
 
   let nextChunk = 0
   let inflight = 0
@@ -146,7 +216,8 @@ export async function translateAll(params: TranslateAllParams): Promise<Subtitle
       ...p,
       activeChunks: inflight,
       translatedCues: translatedCueCount(),
-      totalCues
+      totalCues,
+      resumedChunks
     })
   }
 
@@ -300,6 +371,10 @@ export async function translateAll(params: TranslateAllParams): Promise<Subtitle
     }
 
     settled[i] = translated
+    translatedOk.add(i)
+    // Persist the moment this chunk lands, so a crash or a close immediately
+    // afterwards still keeps the work (and the quota it cost).
+    checkpointState()
 
     // Emit AFTER writing the slot so the snapshot already includes it.
     emit({
@@ -322,6 +397,10 @@ export async function translateAll(params: TranslateAllParams): Promise<Subtitle
     if (signal.aborted || fatalError) break
 
     const i = nextChunk++
+    // A chunk restored from the checkpoint is already done — its work was paid
+    // for in a previous run, so do not spend quota on it again.
+    if (settled[i]) continue
+
     inflight++
     emit({ chunkIndex: i, totalChunks, status: 'sending' })
     runChunk(i).finally(() => { inflight-- })
@@ -344,6 +423,9 @@ export async function translateAll(params: TranslateAllParams): Promise<Subtitle
   // like a successful translation that merely happened to emit English for part
   // of the file — the exact failure this app must never hide. Throw instead, and
   // carry the ordered partial result so the UI can still show what succeeded.
+  //
+  // The checkpoint is deliberately NOT cleared: the chunks that did succeed are
+  // worth keeping, so a retry resumes instead of paying for them again.
   if (failedChunks.size > 0) {
     throw new TranslationIncompleteError(
       [...failedChunks].sort((a, b) => a - b),
@@ -352,5 +434,7 @@ export async function translateAll(params: TranslateAllParams): Promise<Subtitle
     )
   }
 
+  // Fully translated — the checkpoint has served its purpose.
+  clearCheckpoint(fingerprint)
   return results
 }

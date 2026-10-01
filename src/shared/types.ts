@@ -35,6 +35,12 @@ export interface TranslationProgress {
    */
   translatedCues?: number
   totalCues?: number
+  /**
+   * Chunks restored from a previous run's checkpoint when this job started.
+   * Non-zero means work from an interrupted attempt was reused instead of being
+   * paid for again — worth telling the user, since the progress bar jumps.
+   */
+  resumedChunks?: number
 }
 
 export interface TranslationComplete {
@@ -199,6 +205,8 @@ export interface ElectronAPI {
   cancelTranslation: (jobId: string) => Promise<IpcResponse<void>>
   onTranslationProgress: (callback: (progress: TranslationProgress) => void) => () => void
   onTranslationComplete: (callback: (result: TranslationComplete) => void) => () => void
+  /** Open the diagnostics log file (or its folder) for a bug report. */
+  openLog: () => Promise<IpcResponse<string>>
 }
 
 declare global {

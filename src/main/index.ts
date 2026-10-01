@@ -2,6 +2,7 @@ import { app, BrowserWindow, Menu, screen } from 'electron'
 import { join } from 'path'
 import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { registerIpcHandlers } from './ipc-handlers'
+import { captureConsole, installCrashHandlers, log } from './modules/logger'
 
 // Must be set BEFORE app.whenReady(): on Linux, Electron's safeStorage only
 // reports encryption as available when it knows which keyring backend to use.
@@ -17,6 +18,11 @@ if (process.platform === 'linux') {
     app.commandLine.appendSwitch('password-store', 'gnome-libsecret')
   }
 }
+
+// Install logging and crash capture FIRST, so a failure during startup is
+// recorded rather than vanishing into a discarded stderr.
+captureConsole()
+installCrashHandlers()
 
 let mainWindow: BrowserWindow | null = null
 
@@ -85,7 +91,12 @@ function createWindow(): void {
 
 registerIpcHandlers(() => mainWindow)
 
-app.whenReady().then(createWindow)
+app.whenReady().then(() => {
+  log.info(
+    `app started — v${app.getVersion()}, electron ${process.versions.electron}, ${process.platform}/${process.arch}`
+  )
+  createWindow()
+})
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

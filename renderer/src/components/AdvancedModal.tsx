@@ -31,6 +31,7 @@ export function AdvancedModal({
   onClose
 }: Props) {
   const [open, setOpen] = useState(false)
+  const [logError, setLogError] = useState<string | null>(null)
 
   const autoId = pickAutoModel(models)
   const current = models.find((m) => m.id === selectedModelId)
@@ -138,6 +139,26 @@ export function AdvancedModal({
             released model is picked up without updating the app. If no Pro is available,
             the best remaining model is used so translation is never blocked.
           </p>
+        </div>
+
+        {/* ── Diagnostics ── */}
+        <div className="rounded-lg border border-border bg-surface-alt px-3 py-2.5">
+          <span className="field-label">Diagnostics</span>
+          <p className="mt-1 text-micro leading-relaxed text-text-muted">
+            The app writes a log of sign-in, translation and error events. Opening it is
+            the fastest way to report a problem — the log says what actually went wrong
+            instead of leaving you to describe it from a screenshot.
+          </p>
+          <button
+            onClick={async () => {
+              const r = await window.electronAPI.openLog()
+              setLogError(r.success ? null : (r.error ?? 'Could not open the log.'))
+            }}
+            className="btn btn-secondary mt-2 w-full"
+          >
+            Open log file
+          </button>
+          {logError && <p className="mt-1.5 text-micro text-danger">{logError}</p>}
         </div>
       </div>
     </Modal>
