@@ -48,6 +48,8 @@ export const IPC_CHANNELS = {
   // Files
   IMPORT_SRT: 'import-srt',
   IMPORT_SRT_PATH: 'import-srt-path',
+  /** Write the translation beside its source with no dialog. */
+  AUTO_SAVE_SRT: 'auto-save-srt',
   EXPORT_SRT: 'export-srt',
   SELECT_MKV: 'select-mkv',
   LIST_MKV_TRACKS: 'list-mkv-tracks',

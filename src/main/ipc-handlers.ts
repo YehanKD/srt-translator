@@ -1,8 +1,8 @@
 import { ipcMain, BrowserWindow, shell, app } from 'electron'
 import { IPC_CHANNELS } from '@shared/constants'
-import type { SubtitleEntry, ApiSettings, IpcResponse, AuthProgress, AccountStatus, QuotaSummary } from '@shared/types'
-import { readFile } from 'fs/promises'
-import { basename, dirname } from 'path'
+import type { SubtitleEntry, ApiSettings, IpcResponse, AuthProgress, AccountStatus, QuotaSummary, AutoSaveResult } from '@shared/types'
+import { readFile, writeFile, access } from 'fs/promises'
+import { basename, dirname, join } from 'path'
 import { pickInputFile, readSrtFile, exportSrtFile, selectMkvFile } from './modules/file-io'
 import { parseSrt, serializeSrt } from './modules/srt-parser'
 import { translateAll, TranslationIncompleteError } from './modules/translation-engine'
@@ -26,6 +26,16 @@ import { pickChatModels, ANTIGRAVITY_PUBLIC_MODELS, ANTIGRAVITY_DEFAULT_MODEL_ID
 const jobs = new Map<string, AbortController>()
 let authListener: ReturnType<typeof startOAuthListener> | null = null
 let authTimeout: NodeJS.Timeout | null = null
+
+/** True when something already exists at this path. */
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path)
+    return true
+  } catch {
+    return false
+  }
+}
 
 /**
  * Turn a thrown error into something a person can act on.
@@ -435,6 +445,33 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
       return { success: false, error: friendlyError(err) }
     }
   })
+
+  /**
+   * Write the translation beside its source with no dialog.
+   *
+   * A separate channel from EXPORT_SRT on purpose: this one cannot prompt, so it
+   * must never be reachable by accident. The renderer only calls it after a
+   * clean, complete translation, and it reports whether it replaced an existing
+   * file so the UI can say so rather than quietly discarding the user's file.
+   */
+  ipcMain.handle(
+    IPC_CHANNELS.AUTO_SAVE_SRT,
+    async (_event, entries: SubtitleEntry[], fileName: string, dir: string): Promise<IpcResponse<AutoSaveResult>> => {
+      try {
+        if (!dir) return { success: false, error: 'No source folder to save into.' }
+        if (!fileName) return { success: false, error: 'No file name to save under.' }
+
+        const target = join(dir, fileName)
+        const existed = await fileExists(target)
+        await writeFile(target, serializeSrt(entries), 'utf-8')
+        log.info(`auto-saved${existed ? ' (replaced existing)' : ''}: ${target}`)
+        return { success: true, data: { path: target, replaced: existed } }
+      } catch (err: unknown) {
+        log.error('auto-save failed:', err)
+        return { success: false, error: friendlyError(err) }
+      }
+    }
+  )
 
   ipcMain.handle(IPC_CHANNELS.IMPORT_SRT_PATH, async (_event, filePath: string): Promise<IpcResponse> => {
     try {

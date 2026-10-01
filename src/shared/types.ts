@@ -73,6 +73,13 @@ export interface ImportResult {
   entries: SubtitleEntry[]
 }
 
+/** Outcome of an automatic save beside the source file. */
+export interface AutoSaveResult {
+  path: string
+  /** True when a file was already there and has been replaced. */
+  replaced: boolean
+}
+
 /**
  * Result of the combined open dialog. A .mkv isn't parsed here — the renderer
  * routes it to the track picker, so `entries` is only populated for subtitles.
@@ -196,6 +203,8 @@ export interface ElectronAPI {
   pickInput: () => Promise<IpcResponse<PickedInput | null>>
   importSrtFromPath: (filePath: string) => Promise<IpcResponse<ImportResult>>
   exportSrt: (entries: SubtitleEntry[], suggestedName: string, suggestedDir?: string) => Promise<IpcResponse<string>>
+  /** Write the translation beside its source, with no dialog. */
+  autoSaveSrt: (entries: SubtitleEntry[], fileName: string, dir: string) => Promise<IpcResponse<AutoSaveResult>>
   selectMkv: () => Promise<IpcResponse<string | null>>
   listMkvTracks: (mkvPath: string) => Promise<IpcResponse<MkvSubtitleTrack[]>>
   extractMkvTrack: (mkvPath: string, trackId: number) => Promise<IpcResponse<MkvExtractionResult>>

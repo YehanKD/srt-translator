@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { SubtitleEntry } from '@shared/types'
 import type { OverallProgress } from '../hooks/useTranslation'
+import { autoSaveName } from '../lib/auto-save'
 
 interface Props {
   progress: OverallProgress | null
@@ -50,6 +51,8 @@ type SaveState = 'idle' | 'saving' | 'saved'
 export function JobStrip({ progress, error, incomplete, cancelled, entries, sourceFileName, sourceDir, onCancel }: Props) {
   const [save, setSave] = useState<SaveState>('idle')
   const [savedPath, setSavedPath] = useState<string | null>(null)
+  /** True when the auto-save replaced a file that was already there. */
+  const [replaced, setReplaced] = useState(false)
 
   // Reset the confirmation after a beat so the button returns to its resting
   // state.
@@ -133,6 +136,43 @@ export function JobStrip({ progress, error, incomplete, cancelled, entries, sour
     }
   }
 
+  /**
+   * Save beside the source automatically once the job finishes cleanly.
+   *
+   * Only a complete translation is written on its own. An incomplete result is
+   * left for the manual button: a part-English file sitting next to the movie
+   * would be auto-loaded by the player and silently produce broken subtitles.
+   *
+   * Runs once per job — guarded by a ref, because the completion event can be
+   * followed by progress updates that would otherwise re-trigger it.
+   */
+  const autoSavedFor = useRef<string | null>(null)
+  useEffect(() => {
+    if (!sourceDir || !entries) return
+    if (tone !== 'done') return
+
+    const key = `${sourceFileName}|${entries.length}`
+    if (autoSavedFor.current === key) return
+    autoSavedFor.current = key
+
+    // A source folder exists only for an MKV extraction — a plain .srt import
+    // leaves it undefined — so it doubles as the "came from a movie" signal.
+    const name = autoSaveName(sourceFileName, true)
+    window.electronAPI
+      .autoSaveSrt(entries, name, sourceDir)
+      .then((r) => {
+        if (r.success && r.data) {
+          setSavedPath(r.data.path)
+          setReplaced(r.data.replaced)
+          setSave('saved')
+        }
+      })
+      .catch(() => {
+        // Leave the manual button as the fallback; a failed auto-save must not
+        // look like a failed translation.
+      })
+  }, [tone, entries, sourceDir, sourceFileName])
+
   const exportLabel =
     save === 'saving'
       ? 'Saving…'
@@ -184,7 +224,12 @@ export function JobStrip({ progress, error, incomplete, cancelled, entries, sour
             <span className="block truncate text-base text-text">
               <span className="nums font-semibold">{entries!.length}</span> cues ready
               {savedPath ? (
-                <span className="ml-2 text-micro text-teal-text">Saved to {savedPath}</span>
+                <span className="ml-2 text-micro text-teal-text">
+                  Saved to {savedPath}
+                  {/* Say so when a file was replaced — the translation winning the
+                      name is intended, but silently discarding something is not. */}
+                  {replaced && <span className="text-text-muted"> (replaced an existing file)</span>}
+                </span>
               ) : (
                 <span className="ml-2 text-micro text-text-muted">Will save as {suggestedName}</span>
               )}
