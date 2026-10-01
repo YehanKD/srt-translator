@@ -7,7 +7,7 @@ set -e
 cd "$(dirname "$0")"
 
 REPO="YehanKD/srt-translator"
-VERSION="2.0.0"
+VERSION="2.0.1"
 TAG="v${VERSION}"
 
 APPIMAGE="release/SRT Translator-${VERSION}.AppImage"
@@ -39,15 +39,18 @@ gh release create "$TAG" "${ASSETS[@]}" \
 Sign in with your Google account to translate using its Gemini quota — no API key needed.
 
 **Highlights**
-- **Sign-in now works for brand-new Google accounts.** Accounts that had never used Gemini Code Assist were rejected with \"No Cloud Code project available\". The app no longer treats a missing Cloud Code project as a sign-in failure — it saves the session and retries discovery automatically, so an account starts working on its own once Google provisions the project.
-- Google Antigravity sign-in (replaces the old API-key backend)
-- Session is remembered between launches (refresh token encrypted via the OS keyring)
+- **Quota updates itself.** The indicator refreshes on a timer and again right after a translation finishes, so it no longer needs the Refresh button.
+- **Faster translation.** Concurrency now ramps from 6 to 12 requests as the backend stays clean, cutting wall time on long files roughly in half. Any rate-limit response pulls it straight back down.
+- **Truncated responses are no longer hidden.** If the model returned fewer cues than asked, the missing lines used to keep their original text while the job still reported success — a part-English file that looked finished. It now retries and reports incomplete instead.
+- **Sign-in works for brand-new Google accounts.** Accounts that had never used Gemini Code Assist were rejected with \"No Cloud Code project available\". A missing project is no longer treated as a sign-in failure — the session is saved and discovery retries automatically.
+- **New models are adopted automatically.** The newest Gemini Pro on your account is chosen at each launch, so a newly released model is used without updating the app.
+- Quota shows the model actually in use, not the lowest across every model on the account
 - Translates from any source language, not just English
+- MKV-extracted subtitles are named after the movie, so players auto-load them
+- Session is remembered between launches (refresh token encrypted via the OS keyring)
 - Light/dark theme with a circular reveal animation
 - Failed chunks report an error instead of silently exporting untranslated text; cancelling reports Cancelled, not Failed
-- Per-model quota view with the plan-appropriate reset window
 - AppImage cold start dropped from ~77s to ~1s (zstd squashfs)
-- Linux packages no longer bundle ~38 MB of Windows-only MKVToolNix binaries
 
 **Linux install**
 - Arch/Omarchy: \`yay -S srt-translator\`
