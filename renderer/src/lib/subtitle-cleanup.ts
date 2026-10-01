@@ -26,10 +26,28 @@ import { stripSoundCues } from './sound-cues'
 const NOTE_START_RE = /^[\u266A\u266B]/
 const NOTE_END_RE = /[\u266A\u266B]$/
 
+/**
+ * Formatting that carries no words and must never reach the translator.
+ *
+ * Two different syntaxes appear in real files:
+ *   - HTML-ish: `<i>`, `</i>`, `<font …>`
+ *   - ASS override blocks: `{\an8}` (line position), `{\pos(…) }`, `{\c&H…&}`
+ *
+ * The ASS form matters for lyric detection: a track that writes
+ * `{\an8}<i>♪ text ♪</i>` puts the positioning tag BEFORE the note, so a check
+ * that only strips `<i>` sees a line that does not start with ♪ and keeps the
+ * whole lyric. That is exactly how songs survived cleanup on a real file.
+ */
+const MARKUP_RE = /<\/?[a-zA-Z][^>]*>|\{\\[^}]*\}/g
+
+/** Remove formatting markup so a line can be compared on its words alone. */
+function stripMarkup(line: string): string {
+  return line.replace(MARKUP_RE, '')
+}
+
 /** Markup and a leading speaker dash are not part of the lyric. */
 function normalizeForCheck(line: string): string {
-  return line
-    .replace(/<\/?[a-zA-Z][^>]*>/g, '')
+  return stripMarkup(line)
     .replace(/^\s*[-\u2013\u2014]\s*/, '')
     .trim()
 }
@@ -198,10 +216,22 @@ export function cleanupSubtitles(entries: SubtitleEntry[]): {
     afterSpeaker.push(touched ? { ...e, text: lines.join('\n') } : e)
   }
 
+  // Pass 4 — formatting markup. `{\an8}` and `<i>` carry no words, so leaving
+  // them in sends junk to the translator and pollutes the exported file.
+  const afterMarkup: SubtitleEntry[] = []
+  for (const e of afterSpeaker) {
+    const lines = e.text
+      .split('\n')
+      .map((l) => stripMarkup(l).replace(/[ \t]{2,}/g, ' ').trim())
+      .filter((l) => l.length > 0)
+    if (lines.length === 0) continue
+    afterMarkup.push({ ...e, text: lines.join('\n') })
+  }
+
   // "Cleaned" means the cue survived but its text is not what was imported.
   // Tracked by identity as each cue passes through, so a cue that lost lines in
   // two different passes is still counted once.
-  const survivors = new Map(afterSpeaker.map((e) => [e.startTime + '|' + e.endTime, e.text]))
+  const survivors = new Map(afterMarkup.map((e) => [e.startTime + '|' + e.endTime, e.text]))
   let cleanedCues = 0
   for (const e of entries) {
     const now = survivors.get(e.startTime + '|' + e.endTime)
@@ -209,15 +239,15 @@ export function cleanupSubtitles(entries: SubtitleEntry[]): {
   }
 
   return {
-    entries: afterSpeaker.map((e, i) => ({ ...e, id: String(i + 1) })),
+    entries: afterMarkup.map((e, i) => ({ ...e, id: String(i + 1) })),
     stats: {
-      removedCues: entries.length - afterSpeaker.length,
+      removedCues: entries.length - afterMarkup.length,
       cleanedCues,
       soundTags: sound.removedTags,
       musicLines,
       speakerLabels,
       totalIn: entries.length,
-      totalOut: afterSpeaker.length
+      totalOut: afterMarkup.length
     }
   }
 }

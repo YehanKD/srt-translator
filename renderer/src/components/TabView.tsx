@@ -6,7 +6,6 @@ import { JobStrip } from './JobStrip'
 import { useTranslation } from '../hooks/useTranslation'
 import { IconGlobe, IconFilePlus } from './Icons'
 import { cleanupSubtitles } from '../lib/subtitle-cleanup'
-import type { CleanupStats } from '../lib/subtitle-cleanup'
 import type { SubtitleEntry, ApiSettings } from '@shared/types'
 
 export interface TabViewInfo {
@@ -42,7 +41,6 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
   const [sourceFileName, setSourceFileName] = useState('')
   /** Folder of the source movie, so the export can default beside it. */
   const [sourceDir, setSourceDir] = useState<string | undefined>(undefined)
-  const [cleanupStats, setCleanupStats] = useState<CleanupStats | null>(null)
   const [blurred, setBlurred] = useState<boolean>(loadBlurDefault)
 
   const { translating, progress, translatedEntries, error, incomplete, cancelled, startTranslation, cancelTranslation, reset } =
@@ -64,25 +62,24 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
 
   useEffect(() => {
     if (!initialImport) return
-    const { entries, stats } = cleanupSubtitles(initialImport.entries)
+    // Clean on import so the preview shows exactly what will be translated —
+    // sound descriptions, song lyrics, speaker labels and formatting markup all
+    // cost quota and come back as nonsense if they reach the model. Nothing is
+    // reported to the user: the preview simply shows the cleaned result.
+    const { entries } = cleanupSubtitles(initialImport.entries)
     setSourceEntries(entries)
     setSourceFileName(initialImport.fileName)
     setSourceDir(initialImport.sourceDir)
-    setCleanupStats(stats)
     reset()
     onInitialConsumed?.(tabId)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialImport])
 
   const handleImport = useCallback((entries: SubtitleEntry[], fileName: string) => {
-    // Clean on import so the preview shows exactly what will be translated —
-    // sound descriptions, song lyrics and speaker labels all cost quota and
-    // come back as nonsense if they reach the model.
-    const { entries: cleaned, stats } = cleanupSubtitles(entries)
+    const { entries: cleaned } = cleanupSubtitles(entries)
     setSourceEntries(cleaned)
     setSourceFileName(fileName)
     setSourceDir(undefined)
-    setCleanupStats(stats)
     reset()
   }, [reset])
 
@@ -90,7 +87,6 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
     setSourceEntries(null)
     setSourceFileName('')
     setSourceDir(undefined)
-    setCleanupStats(null)
     reset()
   }, [reset])
 
@@ -136,23 +132,6 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
       {/* ── Content ── */}
       <div className="flex-1 overflow-y-auto px-8 pb-6">
         <div className="space-y-3">
-          {cleanupStats && cleanupStats.removedCues > 0 && sourceEntries && (
-            <p className="text-sm text-warn-text">
-              Cleaned {cleanupStats.removedCues} line
-              {cleanupStats.removedCues === 1 ? '' : 's'} that shouldn't be translated —{' '}
-              <span className="text-text-muted">
-                {[
-                  cleanupStats.soundTags > 0 ? `${cleanupStats.soundTags} sound descriptions` : null,
-                  cleanupStats.musicLines > 0 ? `${cleanupStats.musicLines} song lyric lines` : null,
-                  cleanupStats.speakerLabels > 0 ? `${cleanupStats.speakerLabels} speaker names` : null
-                ]
-                  .filter(Boolean)
-                  .join(', ')}
-                . {cleanupStats.totalOut} cues left to translate.
-              </span>
-            </p>
-          )}
-
           {!sourceEntries && (
             <FileImport onImport={handleImport} onMkvDropped={onMkvDropped} disabled={translating} />
           )}
