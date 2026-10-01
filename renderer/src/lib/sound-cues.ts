@@ -25,36 +25,97 @@ import type { SubtitleEntry } from '@shared/types'
  *     description like "[sighs]" should not be sent to the translator.
  *   - Drop the whole cue only when every line is dropped.
  *
- * Deliberately NOT handled: bare ALL-CAPS lines ("MUSIC PLAYING") and
- * musical-note lines. ALL-CAPS is ambiguous — it is also how shouting is
- * marked in ordinary dialogue — so guessing there would delete real speech.
- * Brackets and parentheses are the unambiguous convention, and covering them
- * fixes every miss found in the sample track.
+ * Deliberately NOT handled here: bare ALL-CAPS lines ("MUSIC PLAYING").
+ * ALL-CAPS is ambiguous — it is also how shouting is marked in ordinary
+ * dialogue — so guessing there would delete real speech. Song lyrics are handled
+ * separately in subtitle-cleanup.ts, which keys off the musical-note convention.
  */
 
-/** A bracketed sound description: [ … ] or ( … ), non-nested. */
-const SOUND_TAG_RE = /[\[(][^\])]*[\])]/g
+/**
+ * A bracketed sound description.
+ *
+ * `[ … ]` is unambiguous — subtitles do not use square brackets for dialogue —
+ * so any span qualifies. Parentheses are NOT: real subtitles use `( … )` for
+ * asides and translations ("රිකනයිසන්ස් (Reconnaissance).", "The plan (such as
+ * it is) worked."). Stripping those deleted real words, so a parenthesised run
+ * only counts as a sound description when it is a standalone line (handled by
+ * isPureSoundLine) or when its content reads like one (see looksLikeSoundTag).
+ */
+const BRACKET_RE = /\[[^\]]*\]/g
+const PAREN_RE = /\([^)]*\)/g
 
-/** Leading speaker dash on a cue line: "- ", "– ", "— ". */
-const SPEAKER_DASH_RE = /^\s*[-–—]\s*/
+/**
+ * Words that mark a parenthesised run as a sound description.
+ *
+ * Descriptions are short and almost always contain a verb of sound, an object
+ * that makes noise, or a mood word ("door closes", "tense music playing").
+ * Anything without such a word is treated as dialogue and kept.
+ */
+const SOUND_TAG_HINTS = [
+  /\b(?:music|song|melody|tune)\b/i,
+  /\b(?:sighs?|sighing|chuckles?|laughs?|laughing|giggles?|grunts?|grunting|groans?|moans?|gasps?|gasping|panting|breathing|breathes?|exhales?|inhales?|sniffles?|snorts?|coughs?|clears throat|whispers?|whispering|muttering|mumbles?|stammers?|stuttering|screams?|screaming|shouts?|yelling|crying|sobbing|sniffing)\b/i,
+  /\b(?:door|doors|knock(?:s|ing)?|footsteps?|steps|thud|thuds|bang|bangs|crash|clatter|clattering|rustl\w+|creak\w*|slam\w*|click\w*|beep\w*|ring\w*|alarm|siren|sirens|phone|dial\w*|horn|whistle\w*|static|silence|quiet)\b/i,
+  /\b(?:gunshot|gunfire|shots?|explosion|explodes|blaring|wailing|howling|barking|meows?|purring|chirp\w*|wind|rain|thunder|water|dishes|glass|paper|traffic|engine|crowd|chatter|applause|cheering)\b/i,
+  /^(?:indistinct|distant|faint|muffled|unintelligible|soft|low|tense|ominous|upbeat|slow|fast|dramatic|gentle|angry|calm)\b/i
+]
+
+/**
+ * True when a parenthesised run reads like a sound description rather than
+ * dialogue. Conservative by design: an unknown run is KEPT, because dropping
+ * real words is worse than translating one sound tag.
+ *
+ * A hint word is required. "Short and lowercase" was tried as an extra signal
+ * and rejected: real asides look exactly like that ("such as it is"), and
+ * deleting them costs dialogue, whereas the failure it guards against is a
+ * single untranslated sound tag.
+ */
+function looksLikeSoundTag(inner: string): boolean {
+  const t = inner.trim()
+  if (!t) return true
+  return SOUND_TAG_HINTS.some((re) => re.test(t))
+}
+
+/** Collect the sound-description spans in a line. */
+function soundSpansIn(line: string): string[] {
+  const spans = [...(line.match(BRACKET_RE) ?? [])]
+  for (const m of line.match(PAREN_RE) ?? []) {
+    if (looksLikeSoundTag(m.slice(1, -1))) spans.push(m)
+  }
+  return spans
+}
+
+/** Remove every sound-description span from a line. */
+function removeSpans(line: string): string {
+  let out = line.replace(BRACKET_RE, '')
+  out = out.replace(PAREN_RE, (m) => (looksLikeSoundTag(m.slice(1, -1)) ? '' : m))
+  return out
+}
 
 /** Formatting markup that carries no words: <i>, </i>, <font …>. */
 const MARKUP_RE = /<\/?[a-zA-Z][^>]*>/g
 
+/**
+ * True when a line consists solely of bracketed runs (and dashes/markup).
+ *
+ * A whole line wrapped in brackets is a sound description in SDH regardless of
+ * its wording — real dialogue asides are embedded in a sentence, never a line on
+ * their own. This is the lenient check; mid-sentence stripping uses the stricter
+ * looksLikeSoundTag, because there a parenthesis may be dialogue.
+ */
+const LINE_IS_ONLY_TAGS_RE = /^(?:\s*[-\u2013\u2014]?\s*(?:\[[^\]]*\]|\([^)]*\))\s*)+$/
+
 /** True when a line has no words once tags and markup are removed. */
 function isPureSoundLine(line: string): boolean {
-  const withoutTags = line
-    .replace(SPEAKER_DASH_RE, '')
-    .replace(SOUND_TAG_RE, '')
-    .replace(MARKUP_RE, '')
-    .replace(/[\s\u200b\u200e\u200f]/g, '')
-  return withoutTags.length === 0
+  const stripped = line.replace(MARKUP_RE, '').trim()
+  if (!stripped) return false
+  if (!LINE_IS_ONLY_TAGS_RE.test(stripped)) return false
+  // Must actually contain a bracketed run, so an empty-ish line is not dropped.
+  return BRACKET_RE.test(stripped) || PAREN_RE.test(stripped)
 }
 
 /** Remove sound tags from a line and tidy the spacing left behind. */
 function stripTagsFromLine(line: string): string {
-  return line
-    .replace(SOUND_TAG_RE, '')
+  return removeSpans(line)
     .replace(/[ \t]{2,}/g, ' ')
     .replace(/[ \t]+$/g, '')
     .replace(/^[ \t]+/g, '')
@@ -88,7 +149,7 @@ export function stripSoundCues(entries: SubtitleEntry[]): SoundCueResult {
     let touchedThisCue = false
 
     for (const raw of lines) {
-      const tagsHere = raw.match(SOUND_TAG_RE)?.length ?? 0
+      const tagsHere = soundSpansIn(raw).length
 
       if (isPureSoundLine(raw)) {
         // Nothing but a sound description — the line has no reason to exist.

@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { FileImport } from './FileImport'
 import { SubtitlePreview } from './SubtitlePreview'
 import { Switch } from './Switch'
 import { JobStrip } from './JobStrip'
 import { useTranslation } from '../hooks/useTranslation'
-import { IconGlobe, IconFilePlus, IconTrash } from './Icons'
-import { stripSoundCues } from '../lib/sound-cues'
+import { IconGlobe, IconFilePlus } from './Icons'
+import { cleanupSubtitles } from '../lib/subtitle-cleanup'
+import type { CleanupStats } from '../lib/subtitle-cleanup'
 import type { SubtitleEntry, ApiSettings } from '@shared/types'
 
 export interface TabViewInfo {
@@ -25,22 +26,6 @@ interface Props {
   onTabInfoChange: (tabId: string, info: TabViewInfo) => void
 }
 
-const SPEAKER_RE = /(?<=^|\s)(?:-\s*)?[A-Z][A-Z0-9 .'&#()\-]{1,50}?:/g
-
-function stripSpeakerNames(entries: SubtitleEntry[]): SubtitleEntry[] {
-  const kept: SubtitleEntry[] = []
-  for (const e of entries) {
-    const text = e.text
-      .replace(SPEAKER_RE, '')
-      .replace(/[ \t]{2,}/g, ' ')
-      .replace(/\n +/g, '\n')
-      .trim()
-    if (!text) continue
-    kept.push({ ...e, text })
-  }
-  return kept.map((e, i) => ({ ...e, id: String(i + 1) }))
-}
-
 const BLUR_PREF_KEY = 'srt-translator-blur-default'
 function loadBlurDefault(): boolean {
   try {
@@ -57,10 +42,7 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
   const [sourceFileName, setSourceFileName] = useState('')
   /** Folder of the source movie, so the export can default beside it. */
   const [sourceDir, setSourceDir] = useState<string | undefined>(undefined)
-  const [removedSoundCount, setRemovedSoundCount] = useState(0)
-  /** Extra detail about what the last sound-cue pass cleaned, when it did both. */
-  const [lastRemovedDetail, setLastRemovedDetail] = useState<string | null>(null)
-  const [removeSpeakerNames, setRemoveSpeakerNames] = useState(false)
+  const [cleanupStats, setCleanupStats] = useState<CleanupStats | null>(null)
   const [blurred, setBlurred] = useState<boolean>(loadBlurDefault)
 
   const { translating, progress, translatedEntries, error, incomplete, cancelled, startTranslation, cancelTranslation, reset } =
@@ -70,10 +52,7 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
     ? Math.round((progress.completedChunks / progress.totalChunks) * 100)
     : null
 
-  const effectiveEntries = useMemo(
-    () => (removeSpeakerNames && sourceEntries ? stripSpeakerNames(sourceEntries) : sourceEntries),
-    [sourceEntries, removeSpeakerNames]
-  )
+  const effectiveEntries = sourceEntries
 
   useEffect(() => {
     onTabInfoChange(tabId, {
@@ -85,20 +64,25 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
 
   useEffect(() => {
     if (!initialImport) return
-    setSourceEntries(initialImport.entries)
+    const { entries, stats } = cleanupSubtitles(initialImport.entries)
+    setSourceEntries(entries)
     setSourceFileName(initialImport.fileName)
     setSourceDir(initialImport.sourceDir)
-    setRemovedSoundCount(0)
+    setCleanupStats(stats)
     reset()
     onInitialConsumed?.(tabId)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialImport])
 
   const handleImport = useCallback((entries: SubtitleEntry[], fileName: string) => {
-    setSourceEntries(entries)
+    // Clean on import so the preview shows exactly what will be translated —
+    // sound descriptions, song lyrics and speaker labels all cost quota and
+    // come back as nonsense if they reach the model.
+    const { entries: cleaned, stats } = cleanupSubtitles(entries)
+    setSourceEntries(cleaned)
     setSourceFileName(fileName)
     setSourceDir(undefined)
-    setRemovedSoundCount(0)
+    setCleanupStats(stats)
     reset()
   }, [reset])
 
@@ -106,7 +90,7 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
     setSourceEntries(null)
     setSourceFileName('')
     setSourceDir(undefined)
-    setRemovedSoundCount(0)
+    setCleanupStats(null)
     reset()
   }, [reset])
 
@@ -114,28 +98,6 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
     if (!effectiveEntries || !settings.modelId) return
     startTranslation(effectiveEntries, settings)
   }, [effectiveEntries, settings, startTranslation])
-
-  const toggleSpeakerNames = useCallback(() => {
-    setRemoveSpeakerNames((v) => !v)
-    reset()
-  }, [reset])
-
-  const handleRemoveSoundLines = useCallback(() => {
-    if (!sourceEntries) return
-    // Sound cues hide in more shapes than "one bracketed run per cue": dashes,
-    // tags beside dialogue, and tags spanning a line. lib/sound-cues handles all
-    // of them and reports how much it did, so the count matches what the user sees.
-    const result = stripSoundCues(sourceEntries)
-    const removed = result.removedCues + result.cleanedCues
-    setRemovedSoundCount((prev) => prev + removed)
-    setLastRemovedDetail(
-      result.cleanedCues > 0
-        ? `${result.removedCues} sound-only lines removed, ${result.cleanedCues} more cleaned (${result.removedTags} descriptions in total)`
-        : null
-    )
-    setSourceEntries(result.entries)
-    reset()
-  }, [sourceEntries, reset])
 
   const canTranslate = Boolean(sourceEntries && settings.modelId && !translating)
 
@@ -157,27 +119,9 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
             <IconFilePlus size={16} />
             New File
           </button>
-
-          <button
-            onClick={handleRemoveSoundLines}
-            disabled={translating || !canTranslate}
-            title="Drop cues that are only background sounds, e.g. (ALARM BLARING) or [GUARDS YELLING]"
-            className="btn btn-secondary"
-          >
-            <IconTrash size={16} />
-            Remove Sound Cues
-          </button>
         </div>
 
         <div className="flex items-center gap-6">
-          <Switch
-            checked={removeSpeakerNames}
-            onChange={toggleSpeakerNames}
-            disabled={translating}
-            label="Strip speaker names"
-            title="Remove speaker tags like CHOW: / ALAN:"
-          />
-
           {/* Deliberately NOT disabled while translating: blur is a view
               setting, so it stays live throughout the job. */}
           <Switch
@@ -192,13 +136,20 @@ export function TabView({ tabId, defaultTitle, settings, isActive, initialImport
       {/* ── Content ── */}
       <div className="flex-1 overflow-y-auto px-8 pb-6">
         <div className="space-y-3">
-          {removedSoundCount > 0 && sourceEntries && (
+          {cleanupStats && cleanupStats.removedCues > 0 && sourceEntries && (
             <p className="text-sm text-warn-text">
-              Removed {removedSoundCount} background sound line{removedSoundCount === 1 ? '' : 's'} —
-              they won't be translated.{' '}
-              {lastRemovedDetail && (
-                <span className="text-text-muted">({lastRemovedDetail})</span>
-              )}
+              Cleaned {cleanupStats.removedCues} line
+              {cleanupStats.removedCues === 1 ? '' : 's'} that shouldn't be translated —{' '}
+              <span className="text-text-muted">
+                {[
+                  cleanupStats.soundTags > 0 ? `${cleanupStats.soundTags} sound descriptions` : null,
+                  cleanupStats.musicLines > 0 ? `${cleanupStats.musicLines} song lyric lines` : null,
+                  cleanupStats.speakerLabels > 0 ? `${cleanupStats.speakerLabels} speaker names` : null
+                ]
+                  .filter(Boolean)
+                  .join(', ')}
+                . {cleanupStats.totalOut} cues left to translate.
+              </span>
             </p>
           )}
 
