@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { AntigravityModel } from '@shared/types'
 import { Modal, ModalHeader } from './Modal'
 import { IconChevronDown } from './Icons'
-import { PREFERRED_MODEL_ID, pickAutoModel } from '../lib/models'
+import { pickAutoModel } from '../lib/models'
 
 interface Props {
   models: AntigravityModel[]
@@ -132,14 +132,11 @@ export function AdvancedModal({
 
         {/* ── Reference ── */}
         <div className="rounded-lg border border-border bg-surface-alt px-3 py-2.5">
-          <span className="field-label">Preferred model</span>
-          <p className="mt-1 font-mono text-micro text-text-body">
-            {PREFERRED_MODEL_ID}
-          </p>
+          <span className="field-label">Automatic selection</span>
           <p className="mt-1 text-micro leading-relaxed text-text-muted">
-            Used whenever your account offers it. If it isn't available, the best Pro
-            model is chosen instead, falling back to whatever the account does offer so
-            translation is never blocked.
+            The newest Gemini Pro your account offers is chosen each launch, so a newly
+            released model is picked up without updating the app. If no Pro is available,
+            the best remaining model is used so translation is never blocked.
           </p>
         </div>
       </div>

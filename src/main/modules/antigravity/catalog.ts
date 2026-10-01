@@ -1,4 +1,5 @@
 import type { AntigravityModel } from '@shared/types'
+import { prettyModelName, sortModelsForDisplay } from '@shared/models'
 
 /**
  * Static catalog of user-callable Antigravity chat models (display names,
@@ -24,6 +25,16 @@ export const ANTIGRAVITY_DEFAULT_MODEL_ID = 'gemini-3.1-pro-low'
 const MODEL_NAME_MAP: Record<string, string> = Object.fromEntries(
   ANTIGRAVITY_PUBLIC_MODELS.map((m) => [m.id, m.name])
 )
+
+/**
+ * Name a model id. Falls back to a prettified form of the id rather than the
+ * raw string, so a model released after this build shows as
+ * "Gemini 4 Argon Pro" instead of "gemini-4-argon-pro" — a raw id in the picker
+ * reads like a bug.
+ */
+export function getAntigravityModelName(id: string, fallback?: string): string {
+  return MODEL_NAME_MAP[id] || fallback || prettyModelName(id)
+}
 
 /** Upstream id resolution (display tier → live upstream id). */
 export const ANTIGRAVITY_MODEL_ALIASES: Record<string, string> = {
@@ -64,10 +75,6 @@ export function resolveAntigravityModelId(modelId: string): string {
   return ANTIGRAVITY_MODEL_ALIASES[modelId] || modelId
 }
 
-export function getAntigravityModelName(id: string, fallback?: string): string {
-  return MODEL_NAME_MAP[id] || fallback || id
-}
-
 export function getAntigravityModelFallbacks(modelId: string): readonly string[] {
   return ANTIGRAVITY_PRO_FALLBACK_CHAINS[modelId] ?? []
 }
@@ -89,7 +96,9 @@ export function pickChatModels(ids: string[]): AntigravityModel[] {
     seen.add(id)
     out.push({ id, name: getAntigravityModelName(id), ...(MODEL_META[id] ?? {}) })
   }
-  return out
+  // Best-first, so a newly released model appears at the top of the picker
+  // instead of wherever the account happened to list it.
+  return sortModelsForDisplay(out)
 }
 
 const MODEL_META: Record<string, Pick<AntigravityModel, 'contextLength' | 'maxOutputTokens'>> =

@@ -45,7 +45,12 @@ export default defineConfig({
     plugins: [tailwindcss()],
     resolve: {
       alias: {
-        '@': resolve(__dirname, 'renderer/src')
+        '@': resolve(__dirname, 'renderer/src'),
+        // Needed for RUNTIME imports from the renderer. The renderer already
+        // imports `@shared/types`, but those are type-only and erased at build
+        // time, so they never required this alias. Importing a real value (e.g.
+        // the shared model-ranking helpers) does.
+        '@shared': resolve(__dirname, 'src/shared')
       }
     }
   }
