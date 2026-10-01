@@ -1,5 +1,5 @@
 import type { SubtitleEntry, ApiSettings, TranslationProgress } from '@shared/types'
-import { CHUNK_SIZE, CONCURRENCY } from '@shared/constants'
+import { CHUNK_SIZE, CONCURRENCY, MAX_CONCURRENCY } from '@shared/constants'
 import { buildMessages } from './prompt-builder'
 import { sendAntigravityWithFallback, AntigravityApiError, AntigravityModelError } from './antigravity/transport'
 import type { AntigravityMessage } from './antigravity/transport'
@@ -85,9 +85,15 @@ interface TranslateAllParams {
  * 5. Per-chunk index-based matching (keep original ids/timestamps, take only translated text).
  *
  * Adaptive concurrency:
- * - Starts hot at CONCURRENCY (6) in-flight requests.
+ * - Starts at CONCURRENCY (6) in-flight requests — the known-safe floor.
  * - Any 429 shrinks the in-flight limit (×0.6, min 1).
- * - A steady clean streak (>8s without a 429) recovers +1 up to CONCURRENCY.
+ * - A steady clean streak (>8s without a 429) recovers +1, up to
+ *   MAX_CONCURRENCY (12).
+ *
+ * Measured against the live backend: one request takes ~14s and is almost all
+ * waiting, so this work is LATENCY-bound. Six in flight finished in ~18s and
+ * twelve in ~24s, i.e. the upstream is not saturated at 6 — so the ramp is the
+ * main speed lever, and a 429 pulls it straight back down.
  */
 export async function translateAll(params: TranslateAllParams): Promise<SubtitleEntry[]> {
   const { entries, settings, onProgress, signal } = params
@@ -163,11 +169,24 @@ export async function translateAll(params: TranslateAllParams): Promise<Subtitle
     const buildResult = (text: string): SubtitleEntry[] => {
       const cleaned = cleanAiResponse(text)
       const parsed = parseSrt(cleaned)
-      return originals.map((orig, j) =>
-        j < parsed.length
-          ? { id: orig.id, startTime: orig.startTime, endTime: orig.endTime, text: parsed[j].text }
-          : orig
-      )
+
+      // A response with FEWER lines than we asked for means the model dropped
+      // some cues. The old behaviour kept the original text for the missing
+      // ones, which silently produced a part-English file that still reported
+      // success — the one failure mode this app must never hide. Throw so the
+      // chunk retries, and ultimately reports incomplete if it keeps failing.
+      if (parsed.length < originals.length) {
+        throw new Error(
+          `Model returned ${parsed.length} of ${originals.length} cues — response was truncated or malformed.`
+        )
+      }
+
+      return originals.map((orig, j) => ({
+        id: orig.id,
+        startTime: orig.startTime,
+        endTime: orig.endTime,
+        text: parsed[j].text
+      }))
     }
 
     let saw429 = false
@@ -290,8 +309,8 @@ export async function translateAll(params: TranslateAllParams): Promise<Subtitle
       partialResult: snapshot()
     })
 
-    // Steady clean streak → recover one slot at a time.
-    if (!saw429 && Date.now() - last429At > 8000 && limit < CONCURRENCY) {
+    // Steady clean streak → recover one slot at a time, up to the ceiling.
+    if (!saw429 && Date.now() - last429At > 8000 && limit < MAX_CONCURRENCY) {
       limit++
     }
   }

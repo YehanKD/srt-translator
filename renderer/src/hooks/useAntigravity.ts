@@ -112,6 +112,42 @@ export function useAntigravity() {
     }
   }, [])
 
+  /**
+   * Keep the quota indicator current without the user pressing Refresh.
+   *
+   * Polls on a timer using the CACHED path: the main process holds the quota
+   * RPC result for 60s, so this costs one upstream round-trip per minute at
+   * most, however often the timer fires. A forced refresh (the Refresh button)
+   * takes ~5s and hits the upstream RPCs every time, so it is deliberately NOT
+   * used on a timer.
+   */
+  const QUOTA_POLL_MS = 60_000
+
+  useEffect(() => {
+    if (!status.signedIn) return
+    const timer = window.setInterval(() => {
+      void loadQuota()
+    }, QUOTA_POLL_MS)
+    return () => window.clearInterval(timer)
+  }, [status.signedIn, loadQuota])
+
+  /**
+   * Refresh right after a translation finishes.
+   *
+   * Translating is what consumes quota, so this is the moment the number
+   * actually changes — waiting up to a minute for the poll would make the bar
+   * look stale exactly when the user is watching it. A short delay lets the
+   * upstream counters settle before we read them.
+   */
+  useEffect(() => {
+    const off = window.electronAPI.onTranslationComplete(() => {
+      window.setTimeout(() => {
+        void refreshQuota()
+      }, 3000)
+    })
+    return off
+  }, [refreshQuota])
+
   // Listen for auth state changes
   useEffect(() => {
     const off = window.electronAPI.onAuthStateChanged((newStatus: AccountStatus) => {
