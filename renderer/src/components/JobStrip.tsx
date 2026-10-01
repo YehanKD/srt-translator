@@ -68,6 +68,51 @@ export function JobStrip({ progress, error, incomplete, cancelled, entries, sour
   const translating =
     (progress?.status === 'sending' || progress?.status === 'received') && !error && !incomplete
 
+  /**
+   * Save beside the source automatically once the job finishes cleanly.
+   *
+   * Only a complete translation is written on its own. An incomplete result is
+   * left for the manual button: a part-English file sitting next to the movie
+   * would be auto-loaded by the player and silently produce broken subtitles.
+   *
+   * Runs once per job — guarded by a ref, because the completion event can be
+   * followed by progress updates that would otherwise re-trigger it.
+   *
+   * MUST stay above the early return below. Hooks have to run in the same order
+   * on every render, and this component returns null until there is something to
+   * show — so a hook placed after that return is skipped on the first render and
+   * then called on the next, which crashes the whole tree with "Rendered more
+   * hooks than during the previous render". That is exactly what happened: the
+   * window went black the moment a translation started.
+   */
+  const autoSavedFor = useRef<string | null>(null)
+  const finished = !cancelled && !incomplete && !error && !translating && hasEntries
+
+  useEffect(() => {
+    if (!sourceDir || !entries || !finished) return
+
+    const key = `${sourceFileName}|${entries.length}`
+    if (autoSavedFor.current === key) return
+    autoSavedFor.current = key
+
+    // A source folder exists only for an MKV extraction — a plain .srt import
+    // leaves it undefined — so it doubles as the "came from a movie" signal.
+    const name = autoSaveName(sourceFileName, true)
+    window.electronAPI
+      .autoSaveSrt(entries, name, sourceDir)
+      .then((r) => {
+        if (r.success && r.data) {
+          setSavedPath(r.data.path)
+          setReplaced(r.data.replaced)
+          setSave('saved')
+        }
+      })
+      .catch(() => {
+        // Leave the manual button as the fallback; a failed auto-save must not
+        // look like a failed translation.
+      })
+  }, [finished, entries, sourceDir, sourceFileName])
+
   // Nothing to report and nothing to export.
   if (!progress && !error && !hasEntries) return null
 
@@ -146,33 +191,6 @@ export function JobStrip({ progress, error, incomplete, cancelled, entries, sour
    * Runs once per job — guarded by a ref, because the completion event can be
    * followed by progress updates that would otherwise re-trigger it.
    */
-  const autoSavedFor = useRef<string | null>(null)
-  useEffect(() => {
-    if (!sourceDir || !entries) return
-    if (tone !== 'done') return
-
-    const key = `${sourceFileName}|${entries.length}`
-    if (autoSavedFor.current === key) return
-    autoSavedFor.current = key
-
-    // A source folder exists only for an MKV extraction — a plain .srt import
-    // leaves it undefined — so it doubles as the "came from a movie" signal.
-    const name = autoSaveName(sourceFileName, true)
-    window.electronAPI
-      .autoSaveSrt(entries, name, sourceDir)
-      .then((r) => {
-        if (r.success && r.data) {
-          setSavedPath(r.data.path)
-          setReplaced(r.data.replaced)
-          setSave('saved')
-        }
-      })
-      .catch(() => {
-        // Leave the manual button as the fallback; a failed auto-save must not
-        // look like a failed translation.
-      })
-  }, [tone, entries, sourceDir, sourceFileName])
-
   const exportLabel =
     save === 'saving'
       ? 'Saving…'

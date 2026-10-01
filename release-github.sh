@@ -7,7 +7,7 @@ set -e
 cd "$(dirname "$0")"
 
 REPO="YehanKD/srt-translator"
-VERSION="2.0.2"
+VERSION="2.0.3"
 TAG="v${VERSION}"
 
 APPIMAGE="release/SRT Translator-${VERSION}.AppImage"
