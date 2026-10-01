@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { QuotaSummary } from '@shared/types'
 import { ConfirmModal } from './ConfirmModal'
-import { relativeReset, quotaForModel } from '../lib/quota'
+import { relativeReset, quotaForModel, isRollingPlaceholder } from '../lib/quota'
 import { IconSliders, IconSpinner, IconLogout, IconRefresh } from './Icons'
 
 interface Props {
@@ -89,8 +89,16 @@ export function AccountStatusBar({
   const initial = email.charAt(0).toUpperCase() || '?'
 
   const t = quota ? quotaForModel(quota.models, modelId) : null
-  const reset = relativeReset(t?.resetAt ?? null)
   const pct = t ? Math.round(t.remainingPercentage) : null
+
+  // The 5-hour reset is a SLIDING window: while it is untouched, Google reports
+  // "now + 5h" on every call, so a naive countdown sits at "5h" forever and
+  // appears to reset whenever the app is reopened. Detect that and say what is
+  // actually true — the window starts on first use — instead of showing a
+  // number that never moves.
+  const rawReset = t?.resetAt ?? null
+  const placeholder = isRollingPlaceholder(rawReset, 5)
+  const reset = placeholder ? null : relativeReset(rawReset)
 
   return (
     <>
@@ -143,7 +151,11 @@ export function AccountStatusBar({
                   </span>
                 </span>
                 <span className="text-mini text-text-muted">
-                  {reset ? `Resets in ${reset}` : 'No reset reported'}
+                  {placeholder
+                    ? '5h window starts on next use'
+                    : reset
+                      ? `Resets in ${reset}`
+                      : 'No reset reported'}
                 </span>
               </button>
 

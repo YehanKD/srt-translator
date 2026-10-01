@@ -32,6 +32,35 @@ export function quotaForModel(
   return match
 }
 
+/**
+ * Detect a reset time that cannot count down.
+ *
+ * MEASURED BEHAVIOUR (Gemini, Oct 2026): while a 5-hour window is untouched,
+ * Google reports `resetTime = now + 5h` on every call. Sampling 96 seconds apart
+ * moved the reset time forward by exactly 96 seconds, so the countdown stayed
+ * pinned at "5h" forever. After the first translation opened the window, the
+ * same field moved forward only 1 second in 37 seconds — a real fixed timestamp.
+ *
+ * So a reset time is only trustworthy once it has STOPPED tracking the clock.
+ * The give-away is that it sits almost exactly one full window ahead: a genuine
+ * timestamp drifts toward now as time passes, while a placeholder stays a
+ * constant distance away.
+ *
+ * @param resetAt      the ISO time the API reported
+ * @param windowHours  the window length in hours (5 for the rolling limit)
+ * @param toleranceMs  how close to exactly one window counts as "placeholder"
+ */
+export function isRollingPlaceholder(
+  resetAt: string | null,
+  windowHours = 5,
+  toleranceMs = 5 * 60 * 1000
+): boolean {
+  if (!resetAt) return false
+  const ms = new Date(resetAt).getTime() - Date.now()
+  if (!Number.isFinite(ms)) return false
+  return Math.abs(ms - windowHours * 3600 * 1000) <= toleranceMs
+}
+
 /** Compact countdown: "45m", "3h 13m", "2d". */
 export function relativeReset(resetAt: string | null): string | null {
   if (!resetAt) return null

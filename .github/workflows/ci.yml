@@ -46,10 +46,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # The deb target needs these; without them electron-builder's deb step
-      # fails in a way that reads like a config error rather than a missing tool.
+      # fpm (which electron-builder drives for the deb target) needs fakeroot.
+      # Do NOT copy the Arch list here: `libxcrypt-compat` is an Arch package
+      # name and does not exist on Ubuntu, where the library it provides is part
+      # of libcrypt1 and already present. Installing it fails the job outright.
       - name: Install packaging dependencies
-        run: sudo apt-get update && sudo apt-get install -y libxcrypt-compat fakeroot
+        run: sudo apt-get update && sudo apt-get install -y fakeroot
 
       - name: Build
         run: npm run package:linux
