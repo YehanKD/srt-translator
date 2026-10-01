@@ -7,7 +7,7 @@ set -e
 cd "$(dirname "$0")"
 
 REPO="YehanKD/srt-translator"
-VERSION="2.0.1"
+VERSION="2.0.2"
 TAG="v${VERSION}"
 
 APPIMAGE="release/SRT Translator-${VERSION}.AppImage"
@@ -39,8 +39,11 @@ gh release create "$TAG" "${ASSETS[@]}" \
 Sign in with your Google account to translate using its Gemini quota — no API key needed.
 
 **Highlights**
+- **Sound cues, song lyrics and speaker names are removed automatically.** Previously three buttons you had to remember to press; they now run when you open a file, so the preview shows exactly what will be translated. No more paying quota to translate `[door closes]`, `♪ song lyrics ♪` or `JASON:`.
+- **App log for troubleshooting.** The app writes a log of sign-in, translation and error events — find it under *Advanced → Open log file*. Previously a failure left no trace at all when launched from the app menu.
+- **Interrupted translations resume.** A crash, a closed window or a cancel no longer throws away the work already done; reopening the same file continues from where it stopped instead of re-translating from the start.
 - **Quota updates itself.** The indicator refreshes on a timer and again right after a translation finishes, so it no longer needs the Refresh button.
-- **Faster translation.** Concurrency now ramps from 6 to 12 requests as the backend stays clean, cutting wall time on long files roughly in half. Any rate-limit response pulls it straight back down.
+- **Faster translation.** Concurrency ramps from 6 to 12 requests as the backend stays clean, cutting wall time on long files roughly in half. Any rate-limit response pulls it straight back down.
 - **Truncated responses are no longer hidden.** If the model returned fewer cues than asked, the missing lines used to keep their original text while the job still reported success — a part-English file that looked finished. It now retries and reports incomplete instead.
 - **Sign-in works for brand-new Google accounts.** Accounts that had never used Gemini Code Assist were rejected with \"No Cloud Code project available\". A missing project is no longer treated as a sign-in failure — the session is saved and discovery retries automatically.
 - **New models are adopted automatically.** The newest Gemini Pro on your account is chosen at each launch, so a newly released model is used without updating the app.

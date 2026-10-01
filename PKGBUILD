@@ -1,6 +1,6 @@
 # Maintainer: Yehan <yehan@swict.lk>
 pkgname=srt-translator
-pkgver=2.0.1
+pkgver=2.0.2
 pkgrel=1
 pkgdesc="AI-powered subtitle translator: any language into natural spoken Sinhala (Electron desktop app)"
 arch=('x86_64')
@@ -13,7 +13,7 @@ optdepends=(
 options=('!strip')
 _appimage="SRT.Translator-${pkgver}.AppImage"
 source=("${url}/releases/download/v${pkgver}/${_appimage}")
-sha256sums=('f95cbe1d734ae824bb540d5f62e1861c856bc33dcf0bb15a5294d7f05218250b')
+sha256sums=('87f8704053ff4238765d24ab2bb607af6d3adf6100366b351396ac6203f15047')
 
 prepare() {
   chmod +x "${srcdir}/${_appimage}"
