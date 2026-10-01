@@ -91,8 +91,17 @@ function removeSpans(line: string): string {
   return out
 }
 
-/** Formatting markup that carries no words: <i>, </i>, <font …>. */
-const MARKUP_RE = /<\/?[a-zA-Z][^>]*>/g
+/**
+ * Formatting that carries no words and must never reach the translator.
+ *
+ * Two syntaxes appear in real files and both must be handled:
+ *   - HTML-ish: `<i>`, `</i>`, `<font …>`
+ *   - ASS override blocks: `{\an8}` (position), `{\pos(…) }`, `{\c&H…&}`
+ *
+ * Missing the ASS form left a bare `{\an8}` cue behind when a sound tag was
+ * wrapped in it, and would have sent the tag itself to the translator.
+ */
+const MARKUP_RE = /<\/?[a-zA-Z][^>]*>|\{\\[^}]*\}/g
 
 /**
  * True when a line consists solely of bracketed runs (and dashes/markup).
@@ -149,7 +158,11 @@ export function stripSoundCues(entries: SubtitleEntry[]): SoundCueResult {
     let touchedThisCue = false
 
     for (const raw of lines) {
-      const tagsHere = soundSpansIn(raw).length
+      // Count and strip against the line WITHOUT markup, so an ASS or HTML tag
+      // wrapping a sound cue does not hide it. Otherwise "{\an8}[door closes]"
+      // kept a bare "{\an8}" line and the cue survived as junk.
+      const bare = raw.replace(MARKUP_RE, '')
+      const tagsHere = soundSpansIn(bare).length
 
       if (isPureSoundLine(raw)) {
         // Nothing but a sound description — the line has no reason to exist.
@@ -162,9 +175,9 @@ export function stripSoundCues(entries: SubtitleEntry[]): SoundCueResult {
         // Dialogue plus a sound tag: keep the words, drop the description.
         removedTags += tagsHere
         touchedThisCue = true
-        const cleaned = stripTagsFromLine(raw)
+        const cleaned = stripTagsFromLine(bare)
         // Guard against a line that was markup-only once tags were removed.
-        if (cleaned.replace(MARKUP_RE, '').trim() === '') continue
+        if (cleaned.trim() === '') continue
         keptLines.push(cleaned)
       } else {
         keptLines.push(raw)

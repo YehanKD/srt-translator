@@ -20,7 +20,8 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "package": "electron-vite build && electron-builder --win --publish never",
-    "package:linux": "electron-vite build && electron-builder --linux --publish never"
+    "package:linux": "electron-vite build && electron-builder --linux --publish never",
+    "test": "node --test 'tests/**/*.test.mjs'"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.3.0",
@@ -36,6 +37,7 @@
     "electron": "^42.3.3",
     "electron-builder": "^26.15.0",
     "electron-vite": "^5.0.0",
+    "esbuild": "^0.25.12",
     "tailwindcss": "^4.3.0",
     "typescript": "^6.0.3"
   },

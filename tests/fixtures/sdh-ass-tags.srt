@@ -1,0 +1,40 @@
+1
+00:00:01,000 --> 00:00:03,000
+{\an8}<i>♪ "Come, little leaves"
+Said the wind one day ♪</i>
+
+2
+00:00:04,000 --> 00:00:06,000
+{\an8}<i>♪ Put on your dresses of red and gold ♪</i>
+
+3
+00:00:07,000 --> 00:00:09,000
+{\an8}<i>♪ Winter had called them
+And they were content ♪</i>
+
+4
+00:00:10,000 --> 00:00:12,000
+{\an8}Don't freak out, but there's a weird guy
+over there staring at you.
+
+5
+00:00:13,000 --> 00:00:15,000
+{\pos(320,240)}Hello there.
+
+6
+00:00:16,000 --> 00:00:18,000
+{\an8}[door closes]
+
+7
+00:00:19,000 --> 00:00:21,000
+<i>you have a free coffee credit
+on your account there</i>.
+
+8
+00:00:22,000 --> 00:00:24,000
+- This is called <i>Quirky Quinn</i>.
+- [giggles]
+
+9
+00:00:25,000 --> 00:00:27,000
+Do you know anyone named Quinn?

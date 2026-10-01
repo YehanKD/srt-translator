@@ -207,6 +207,8 @@ export interface ElectronAPI {
   onTranslationComplete: (callback: (result: TranslationComplete) => void) => () => void
   /** Open the diagnostics log file (or its folder) for a bug report. */
   openLog: () => Promise<IpcResponse<string>>
+  /** The running app's version, shown in the header so a screenshot names the build. */
+  getAppVersion: () => Promise<IpcResponse<string>>
 }
 
 declare global {

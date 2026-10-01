@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { AccountStatusBar } from './components/AccountStatusBar'
 import { HomeView } from './components/HomeView'
 import { QuotaModal } from './components/QuotaModal'
@@ -32,6 +32,18 @@ export default function App() {
   const [pendingMkvByTab, setPendingMkvByTab] = useState<Record<string, string>>({})
   const [showQuotaModal, setShowQuotaModal] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [appVersion, setAppVersion] = useState('')
+
+  // Fetched once. Failure is silent on purpose — a missing version label is
+  // cosmetic and must never disturb the app.
+  useEffect(() => {
+    window.electronAPI
+      .getAppVersion()
+      .then((r) => {
+        if (r.success && r.data) setAppVersion(r.data)
+      })
+      .catch(() => {})
+  }, [])
   const counterRef = useRef(1)
 
   const setTabView = useCallback((tabId: string, view: View) => {
@@ -127,8 +139,16 @@ export default function App() {
             <IconMessageSquareText size={20} />
           </span>
           <span className="flex flex-col gap-0.5">
-            <span className="text-lg font-bold leading-none tracking-[-0.01em] text-text">
-              SRT Translator
+            <span className="flex items-baseline gap-2">
+              <span className="text-lg font-bold leading-none tracking-[-0.01em] text-text">
+                SRT Translator
+              </span>
+              {/* The version is here so a screenshot of a problem names the
+                  build — without it, "which version are you on?" is a round
+                  trip, and a stale install looks identical to a current one. */}
+              {appVersion && (
+                <span className="nums text-micro font-medium text-text-muted">v{appVersion}</span>
+              )}
             </span>
             {/* The source language is auto-detected by the model, so the header
                 names the destination only rather than claiming "English". */}

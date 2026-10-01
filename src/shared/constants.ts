@@ -43,6 +43,8 @@ export const IPC_CHANNELS = {
   LIST_MODELS: 'list-models',
   // Diagnostics — open the log file / its folder for bug reports.
   OPEN_LOG: 'open-log',
+  /** The running app's version, so a bug report can name the build. */
+  APP_VERSION: 'app-version',
   // Files
   IMPORT_SRT: 'import-srt',
   IMPORT_SRT_PATH: 'import-srt-path',

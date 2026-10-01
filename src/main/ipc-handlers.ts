@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, shell } from 'electron'
+import { ipcMain, BrowserWindow, shell, app } from 'electron'
 import { IPC_CHANNELS } from '@shared/constants'
 import type { SubtitleEntry, ApiSettings, IpcResponse, AuthProgress, AccountStatus, QuotaSummary } from '@shared/types'
 import { readFile } from 'fs/promises'
@@ -576,6 +576,14 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
         if (folderErr) return { success: false, error: folderErr }
       }
       return { success: true, data: path }
+    } catch (err: unknown) {
+      return { success: false, error: friendlyError(err) }
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.APP_VERSION, async (): Promise<IpcResponse<string>> => {
+    try {
+      return { success: true, data: app.getVersion() }
     } catch (err: unknown) {
       return { success: false, error: friendlyError(err) }
     }
