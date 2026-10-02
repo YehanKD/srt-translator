@@ -115,3 +115,34 @@ test('an empty result is NOT saved automatically', () => {
     false
   )
 })
+
+test('a job still running is NOT saved automatically', () => {
+  // THE BUG THIS PREVENTS. A chunk that exhausts its retries emits status
+  // 'error' while the job is still going. The component inferred completion
+  // from "not currently translating", so that mid-job error read as "finished"
+  // and fired the save — writing 135 of 1726 cues over the movie's subtitle
+  // mid-job, leaving a file the player would auto-load at 92% English.
+  //
+  // Only the completion event sets status 'done'; chunk events emit 'sending',
+  // 'received' or 'error'. So anything other than 'done' must not save.
+  const midJob = { entries: [cue('a'), cue('b')], incomplete: false, cancelled: false }
+  assert.equal(shouldAutoSave({ ...midJob, success: false }), false)
+})
+
+test('a mid-job chunk error does not look like a completed job', () => {
+  // Regression guard: the failure was reading progress.status === 'error'
+  // (a chunk error) as job completion. 'error' must never be treated as done.
+  const statuses = ['sending', 'received', 'error']
+  for (const status of statuses) {
+    assert.equal(
+      shouldAutoSave({
+        success: status === 'done',
+        entries: [cue('a')],
+        incomplete: false,
+        cancelled: false
+      }),
+      false,
+      `status '${status}' must not trigger an auto-save`
+    )
+  }
+})

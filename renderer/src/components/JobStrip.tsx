@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { SubtitleEntry } from '@shared/types'
 import type { OverallProgress } from '../hooks/useTranslation'
-import { autoSaveName } from '../lib/auto-save'
+import { autoSaveName, shouldAutoSave } from '../lib/auto-save'
 
 interface Props {
   progress: OverallProgress | null
@@ -85,15 +85,43 @@ export function JobStrip({ progress, error, incomplete, cancelled, entries, sour
    * hooks than during the previous render". That is exactly what happened: the
    * window went black the moment a translation started.
    */
-  const autoSavedFor = useRef<string | null>(null)
-  const finished = !cancelled && !incomplete && !error && !translating && hasEntries
+  const autoSavedFor = useRef<SubtitleEntry[] | null>(null)
+
+  /**
+   * Finished CLEANLY — a stricter thing than "not currently translating", and
+   * the difference cost a file.
+   *
+   * The previous condition inferred completion from `!translating`. A chunk that
+   * exhausts its retries emits status 'error' while the job is STILL RUNNING, so
+   * that mid-job error read as "the job finished" and fired the auto-save —
+   * writing a part-translated file (135 of 1726 cues) over the movie's subtitle
+   * while the remaining chunks were still being sent. The player then auto-loads
+   * a file that is 92% English, which is worse than no subtitle at all.
+   *
+   * `progress.status === 'done'` is set ONLY by the completion event, so it is
+   * the one signal that means the job actually settled — chunk events emit
+   * 'sending', 'received' or 'error', never 'done'.
+   *
+   * The decision goes through `shouldAutoSave`, which is the same function the
+   * tests cover. Hand-rolling the condition here is what caused the bug: the
+   * helper was correct and tested, and this component simply did not call it.
+   */
+  const finished = shouldAutoSave({
+    success: progress?.status === 'done',
+    entries,
+    incomplete: Boolean(incomplete),
+    cancelled: Boolean(cancelled)
+  })
 
   useEffect(() => {
     if (!sourceDir || !entries || !finished) return
 
-    const key = `${sourceFileName}|${entries.length}`
-    if (autoSavedFor.current === key) return
-    autoSavedFor.current = key
+    // Guard on the result ARRAY, not on a name+length string. Every finished job
+    // produces a fresh array, so this fires once per job — while a string key
+    // silently skipped a second translation of the same file that happened to
+    // yield the same cue count.
+    if (autoSavedFor.current === entries) return
+    autoSavedFor.current = entries
 
     // A source folder exists only for an MKV extraction — a plain .srt import
     // leaves it undefined — so it doubles as the "came from a movie" signal.

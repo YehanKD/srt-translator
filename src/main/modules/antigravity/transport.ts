@@ -201,7 +201,14 @@ function classifyHttpError(status: number, bodyText: string, modelId: string): E
     return new AntigravityApiError(`Access forbidden (403): ${trimError(bodyText, modelId)}`, 403)
   }
   if (status === 429) {
-    return new AntigravityApiError(`Rate limited (429): ${trimError(bodyText, modelId)}`, 429)
+    // A 429 from this API is almost always the 5-hour Gemini window being
+    // exhausted, not a transient burst. Saying only "Rate limited" made the user
+    // think the app was throttling itself, when in fact the account had run out
+    // — the one case where the right advice is "wait for the reset", not "retry".
+    return new AntigravityApiError(
+      `Quota exhausted (429). The Gemini limit for this account is used up — wait for the window to reset, or switch models. ${trimError(bodyText, modelId)}`,
+      429
+    )
   }
   return new AntigravityApiError(`Antigravity API error ${status}: ${trimError(bodyText, modelId)}`, status)
 }
