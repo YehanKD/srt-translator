@@ -1,6 +1,6 @@
 # Maintainer: Yehan <yehan@swict.lk>
 pkgname=srt-translator
-pkgver=2.0.3
+pkgver=2.0.4
 pkgrel=1
 pkgdesc="AI-powered subtitle translator: any language into natural spoken Sinhala (Electron desktop app)"
 arch=('x86_64')

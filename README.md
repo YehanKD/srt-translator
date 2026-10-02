@@ -31,7 +31,7 @@ Sign out at any time from the account bar — this revokes the token with Google
 
 ### Windows
 
-Download and run `SRT Translator Setup 2.0.3.exe` from [Releases](https://github.com/YehanKD/srt-translator/releases).
+Download and run `SRT Translator Setup 2.0.4.exe` from [Releases](https://github.com/YehanKD/srt-translator/releases).
 
 The installer is not code-signed, so Windows SmartScreen may show *"Unknown publisher"* — choose **More info → Run anyway**.
 
@@ -44,14 +44,14 @@ yay -S srt-translator
 ### Any Linux (AppImage)
 
 ```bash
-chmod +x "SRT Translator-2.0.3.AppImage"
-./"SRT Translator-2.0.3.AppImage"
+chmod +x "SRT Translator-2.0.4.AppImage"
+./"SRT Translator-2.0.4.AppImage"
 ```
 
 ### Debian / Ubuntu
 
 ```bash
-sudo dpkg -i srt-translator_2.0.3_amd64.deb
+sudo dpkg -i srt-translator_2.0.4_amd64.deb
 ```
 
 ## Optional: MKV subtitle extraction
@@ -131,7 +131,7 @@ Cancelling is a **distinct outcome** from failing: the run reports *Cancelled* (
 Launch with XWayland — native Wayland plus Vulkan fails to map the window:
 
 ```bash
-./"SRT Translator-2.0.3.AppImage" --ozone-platform=x11 --enable-features=WaylandWindowDecorations
+./"SRT Translator-2.0.4.AppImage" --ozone-platform=x11 --enable-features=WaylandWindowDecorations
 ```
 
 **AppImage won't start (`libfuse.so.2`)**

@@ -7,7 +7,7 @@ set -e
 cd "$(dirname "$0")"
 
 REPO="YehanKD/srt-translator"
-VERSION="2.0.3"
+VERSION="2.0.4"
 TAG="v${VERSION}"
 
 APPIMAGE="release/SRT Translator-${VERSION}.AppImage"
@@ -47,7 +47,7 @@ AI-powered subtitle translator: any language into natural spoken Sinhala.
 Sign in with your Google account to translate using its Gemini quota — no API key needed.
 
 **Highlights**
-- **Finished translations save themselves.** A completed translation is written beside the movie with the movie's exact name, so the player auto-loads it — no dialog, no clicking Save. An MKV becomes `Movie.srt` next to `Movie.mkv`.
+- **Finished translations save themselves — and only finished ones.** A completed translation is written beside the movie with the movie's exact name, so the player auto-loads it — no dialog, no clicking Save. An MKV becomes `Movie.srt` next to `Movie.mkv`. This release fixes a bug where a translation that was still running could be saved after only part of the file was done, leaving a mostly-English subtitle beside the movie.
 - **Sound cues, song lyrics and speaker names are removed automatically.** Previously three buttons you had to remember to press; they now run when you open a file, so the preview shows exactly what will be translated. No more paying quota to translate `[door closes]`, `♪ song lyrics ♪` or `JASON:`.
 - **The 5-hour reset counts down properly.** It used to sit at "5h" forever and appear to restart every time you reopened the app: while a window is untouched, Google reports the reset as "now + 5 hours", so the number could never move. The app now detects that and says so, instead of showing a countdown that is silently wrong.
 - **App log for troubleshooting.** The app writes a log of sign-in, translation and error events — find it under *Advanced → Open log file*. Previously a failure left no trace at all when launched from the app menu.
@@ -69,7 +69,7 @@ Sign in with your Google account to translate using its Gemini quota — no API 
 **Linux install**
 - Arch/Omarchy: `yay -S srt-translator`
 - AppImage: `chmod +x` then run
-- Debian/Ubuntu: `sudo dpkg -i srt-translator_2.0.3_amd64.deb`
+- Debian/Ubuntu: `sudo dpkg -i srt-translator_2.0.4_amd64.deb`
 
 **Windows install**
 - Run the installer. It is not code-signed, so SmartScreen may show "Unknown publisher" — choose *More info → Run anyway*.
