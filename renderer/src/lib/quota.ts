@@ -80,3 +80,34 @@ export function meterColor(pct: number): string {
   if (pct < 30) return 'var(--color-warning)'
   return 'var(--color-accent-bright)'
 }
+
+/**
+ * Which of the account's two windows is the per-model percentage describing?
+ *
+ * The per-model bucket reports whichever limit is TIGHTER and carries THAT
+ * window's reset time. A paid account can therefore legitimately read
+ * "13% left, resets in 3d" — the WEEKLY limit — while the 5-hour window still
+ * has hours left and translation works fine. Unlabelled, that reads as "blocked
+ * for three days" and sends the user hunting for a fault that isn't there.
+ *
+ * Identified by matching the model's percentage against the account's own
+ * windows rather than by guessing: the two are computed from the same upstream
+ * fraction, so an exact match is the reliable signal. Returns null when nothing
+ * matches, which is honest — better a bare number than a wrong label.
+ *
+ * @param modelId  the model being translated with; selects the window family,
+ *                 because Claude/GPT models draw on a different weekly pool
+ */
+export function bindingWindow(
+  modelId: string | null | undefined,
+  pct: number | null,
+  weekly: { key: string; remainingPercentage: number; window?: string }[]
+): { window?: string } | null {
+  if (!modelId || pct === null || !weekly?.length) return null
+  const family = /claude|gpt/i.test(modelId) ? 'claude_gpt' : 'gemini'
+  return (
+    weekly.find(
+      (w) => w.key.startsWith(family) && Math.abs(w.remainingPercentage - pct) < 1.5
+    ) ?? null
+  )
+}
