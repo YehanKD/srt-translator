@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { QuotaSummary } from '@shared/types'
 import { ConfirmModal } from './ConfirmModal'
-import { relativeReset, quotaForModel, isRollingPlaceholder, bindingWindow } from '../lib/quota'
+import { relativeReset, quotaForModel, isRollingPlaceholder, windowFor } from '../lib/quota'
 import { IconSliders, IconSpinner, IconLogout, IconRefresh } from './Icons'
 
 interface Props {
@@ -89,28 +89,24 @@ export function AccountStatusBar({
   const initial = email.charAt(0).toUpperCase() || '?'
 
   const t = quota ? quotaForModel(quota.models, modelId) : null
-  const pct = t ? Math.round(t.remainingPercentage) : null
 
   /**
-   * Which window is this percentage describing?
+   * The dashboard answers ONE question: can I translate right now?
    *
-   * The per-model bucket reports whichever limit is TIGHTER and carries that
-   * window's reset time. So a paid account can legitimately read "13% left,
-   * resets in 3d" — the WEEKLY limit — while the 5-hour window still has hours
-   * on it and translating works fine right now. Unlabelled, that reads as
-   * "blocked for three days" and sends the user looking for a fault.
+   * That is the 5-hour window — a rolling limit that refills within hours. The
+   * weekly limit is a different concern (how much of the month's allowance is
+   * left) and showing it here meant the strip could read "13% left, resets in
+   * 3d" while translation worked fine, which reads as being blocked. The weekly
+   * figures now live in Advanced, where the full breakdown belongs.
    *
-   * Match the percentage against the account's own windows to identify which
-   * one it is, then name it. The QuotaModal already prefers the 5-hour window
-   * for paid plans; the header is the at-a-glance number and must agree.
+   * The per-model bucket is the fallback, not the primary: it reports whichever
+   * window is TIGHTER, so it is usually the weekly one. It is used only when the
+   * account reports no 5-hour window at all — better a true number than a blank.
    */
-  const binding = bindingWindow(modelId, pct, quota?.weekly ?? [])
-  const isWeeklyBinding = binding?.window === 'weekly'
-  const windowLabel = isWeeklyBinding
-    ? 'Weekly limit'
-    : binding?.window === '5h'
-      ? '5-hour limit'
-      : null
+  const fiveHour = windowFor(modelId, quota?.weekly ?? [], '5h')
+  const shown = fiveHour ?? t
+  const pct = shown ? Math.round(shown.remainingPercentage) : null
+  const showing5h = Boolean(fiveHour)
 
   // The 5-hour reset is a SLIDING window: while it is untouched, Google reports
   // "now + 5h" on every call, so a naive countdown sits at "5h" forever and
@@ -118,18 +114,12 @@ export function AccountStatusBar({
   // actually true — the window starts on first use — instead of showing a
   // number that never moves.
   //
-  // Only meaningful for the 5-hour window: a weekly reset is a fixed date, so
-  // testing it against a 5-hour placeholder would mislabel it.
-  const rawReset = t?.resetAt ?? null
-  const placeholder = !isWeeklyBinding && isRollingPlaceholder(rawReset, 5)
+  // Only applied when the 5-hour window is what's on screen: the fallback may be
+  // a weekly reset, which is a fixed date and must not be tested against a
+  // 5-hour placeholder.
+  const rawReset = shown?.resetAt ?? null
+  const placeholder = showing5h && isRollingPlaceholder(rawReset, 5)
   const reset = placeholder ? null : relativeReset(rawReset)
-
-  // When the weekly limit is the binding one, the thing the user actually needs
-  // to know is whether they can work NOW — so report the 5-hour window too.
-  const fiveHour = (quota?.weekly ?? []).find(
-    (w) => w.key.startsWith(/claude|gpt/i.test(modelId ?? '') ? 'claude_gpt' : 'gemini') && w.window === '5h'
-  )
-  const fiveHourPct = fiveHour ? Math.round(fiveHour.remainingPercentage) : null
 
   return (
     <>
@@ -185,18 +175,9 @@ export function AccountStatusBar({
                   {placeholder
                     ? '5h window starts on next use'
                     : reset
-                      ? `${windowLabel ? `${windowLabel} · ` : ''}Resets in ${reset}`
+                      ? `Resets in ${reset}`
                       : 'No reset reported'}
                 </span>
-                {/* The binding window can be the weekly limit while the 5-hour
-                    window is nearly full and translation works fine. Without
-                    this the header reads as "blocked", which is the opposite
-                    of the truth. */}
-                {isWeeklyBinding && fiveHourPct !== null && (
-                  <span className="text-mini text-teal-text">
-                    5h window: {fiveHourPct}% left
-                  </span>
-                )}
               </button>
 
               <button

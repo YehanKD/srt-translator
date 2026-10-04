@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import type { AntigravityModel } from '@shared/types'
+import type { AntigravityModel, QuotaSummary } from '@shared/types'
 import { Modal, ModalHeader } from './Modal'
-import { IconChevronDown } from './Icons'
+import { IconChevronDown, IconRefresh } from './Icons'
 import { pickAutoModel } from '../lib/models'
+import { windowFor, meterColor } from '../lib/quota'
 
 interface Props {
   models: AntigravityModel[]
@@ -12,6 +13,69 @@ interface Props {
   onSelectModel: (id: string) => void
   onResetToAuto: () => void
   onClose: () => void
+  /**
+   * Full quota breakdown. Lives here because the dashboard shows only the
+   * 5-hour window — the number that answers "can I translate now?" — while the
+   * weekly allowance is reference material you check deliberately, not ambient
+   * status. The dashboard used to show whichever window was tighter, which read
+   * as "blocked for 3 days" while translation worked fine.
+   */
+  quota: QuotaSummary | null
+  onRefreshQuota: () => void
+}
+
+/** One window's figures: percentage, precise meter, reset. */
+function QuotaLine({
+  label,
+  percentage,
+  resetAt,
+  unlimited,
+  hint
+}: {
+  label: string
+  percentage: number
+  resetAt: string | null
+  unlimited?: boolean
+  hint?: string
+}) {
+  const pct = unlimited ? 100 : Math.max(0, Math.min(100, percentage))
+  return (
+    <div className="px-3 py-2.5">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="min-w-0 truncate text-base text-text-body">{label}</span>
+        <span className="nums shrink-0 text-micro text-text-muted">
+          {unlimited ? 'Unlimited' : `${Math.round(percentage)}% left`}
+        </span>
+      </div>
+
+      <div className="meter mt-2">
+        <div
+          className="meter-fill"
+          style={{ width: `${pct}%`, background: unlimited ? 'var(--t-teal)' : meterColor(pct) }}
+        />
+      </div>
+
+      <div className="mt-1.5 flex items-center justify-between gap-3 text-micro text-text-muted">
+        <span className="truncate">{hint}</span>
+        <span className="nums shrink-0">{formatReset(resetAt)}</span>
+      </div>
+    </div>
+  )
+}
+
+/** Relative reset — "in 4h 12m" reads faster than a wall-clock date. */
+function formatReset(resetAt: string | null): string {
+  if (!resetAt) return '—'
+  const ms = new Date(resetAt).getTime() - Date.now()
+  if (!Number.isFinite(ms)) return '—'
+  if (ms <= 0) return 'now'
+  const mins = Math.round(ms / 60000)
+  const d = Math.floor(mins / 1440)
+  const h = Math.floor((mins % 1440) / 60)
+  const m = mins % 60
+  if (d > 0) return `in ${d}d ${h}h`
+  if (h > 0) return `in ${h}h ${m}m`
+  return `in ${m}m`
 }
 
 /**
@@ -19,8 +83,9 @@ interface Props {
  * choosing a model is a rare, power-user action, and a permanent dropdown on the
  * account strip asked everyone to make a decision most people should never make.
  *
- * The quota deliberately stays on the strip: that's ambient status you check at
- * a glance, not configuration.
+ * The 5-hour quota stays on the strip: that's ambient status you check at a
+ * glance, not configuration. The weekly allowance lives here with the rest of
+ * the detail.
  */
 export function AdvancedModal({
   models,
@@ -28,14 +93,24 @@ export function AdvancedModal({
   isAutomatic,
   onSelectModel,
   onResetToAuto,
-  onClose
+  onClose,
+  quota,
+  onRefreshQuota
 }: Props) {
   const [open, setOpen] = useState(false)
   const [logError, setLogError] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
 
   const autoId = pickAutoModel(models)
   const current = models.find((m) => m.id === selectedModelId)
   const currentName = current?.name ?? selectedModelId ?? 'None'
+
+  // The window family follows the model in use: Claude and GPT models draw on a
+  // separate pool, so showing a Gemini reset for one of them would report a
+  // limit that model does not use.
+  const fiveHour = windowFor(selectedModelId, quota?.weekly ?? [], '5h')
+  const weekly = windowFor(selectedModelId, quota?.weekly ?? [], 'weekly')
+  const hasWindows = Boolean(fiveHour || weekly)
 
   return (
     <Modal onClose={onClose} width={32}>
@@ -140,6 +215,57 @@ export function AdvancedModal({
             the best remaining model is used so translation is never blocked.
           </p>
         </div>
+
+        {/* ── Quota ── */}
+        {hasWindows && (
+          <div>
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="field-label">Quota</span>
+              <button
+                onClick={async () => {
+                  setRefreshing(true)
+                  try {
+                    await onRefreshQuota()
+                  } finally {
+                    setRefreshing(false)
+                  }
+                }}
+                disabled={refreshing}
+                className="btn btn-ghost !h-5 !px-1.5 !text-micro"
+              >
+                <IconRefresh size={11} className={refreshing ? 'animate-spin' : ''} />
+                Refresh
+              </button>
+            </div>
+
+            <div className="mt-2 divide-y divide-border rounded-lg border border-border bg-surface">
+              {fiveHour && (
+                <QuotaLine
+                  label="5-hour window"
+                  percentage={fiveHour.remainingPercentage}
+                  resetAt={fiveHour.resetAt}
+                  unlimited={fiveHour.unlimited}
+                  hint="Rolling — refills within hours"
+                />
+              )}
+              {weekly && (
+                <QuotaLine
+                  label="Weekly window"
+                  percentage={weekly.remainingPercentage}
+                  resetAt={weekly.resetAt}
+                  unlimited={weekly.unlimited}
+                  hint="Shared across the account"
+                />
+              )}
+            </div>
+
+            <p className="mt-2 text-micro leading-relaxed text-text-muted">
+              The dashboard shows the 5-hour window, because that is what decides
+              whether you can translate right now. The weekly allowance is larger and
+              slower to refill, so a low weekly figure does not mean you are blocked.
+            </p>
+          </div>
+        )}
 
         {/* ── Diagnostics ── */}
         <div className="rounded-lg border border-border bg-surface-alt px-3 py-2.5">

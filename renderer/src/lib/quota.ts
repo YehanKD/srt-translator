@@ -82,32 +82,19 @@ export function meterColor(pct: number): string {
 }
 
 /**
- * Which of the account's two windows is the per-model percentage describing?
+ * The account's window of a given kind for a model's family.
  *
- * The per-model bucket reports whichever limit is TIGHTER and carries THAT
- * window's reset time. A paid account can therefore legitimately read
- * "13% left, resets in 3d" — the WEEKLY limit — while the 5-hour window still
- * has hours left and translation works fine. Unlabelled, that reads as "blocked
- * for three days" and sends the user hunting for a fault that isn't there.
- *
- * Identified by matching the model's percentage against the account's own
- * windows rather than by guessing: the two are computed from the same upstream
- * fraction, so an exact match is the reliable signal. Returns null when nothing
- * matches, which is honest — better a bare number than a wrong label.
- *
- * @param modelId  the model being translated with; selects the window family,
- *                 because Claude/GPT models draw on a different weekly pool
+ * Windows are keyed by family because Claude and GPT models draw on a SEPARATE
+ * pool from Gemini — reading a Gemini reset for a Claude model would report a
+ * limit that model does not use.
  */
-export function bindingWindow(
+export function windowFor<T extends { key: string; window?: string }>(
   modelId: string | null | undefined,
-  pct: number | null,
-  weekly: { key: string; remainingPercentage: number; window?: string }[]
-): { window?: string } | null {
-  if (!modelId || pct === null || !weekly?.length) return null
-  const family = /claude|gpt/i.test(modelId) ? 'claude_gpt' : 'gemini'
-  return (
-    weekly.find(
-      (w) => w.key.startsWith(family) && Math.abs(w.remainingPercentage - pct) < 1.5
-    ) ?? null
-  )
+  weekly: T[],
+  window: '5h' | 'weekly'
+): T | null {
+  if (!weekly?.length) return null
+  const family = /claude|gpt/i.test(modelId ?? '') ? 'claude_gpt' : 'gemini'
+  return weekly.find((w) => w.key.startsWith(family) && w.window === window) ?? null
 }
+

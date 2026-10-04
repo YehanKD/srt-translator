@@ -2,8 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { loadModules, projectPath } from './helpers/load-module.mjs'
 
-const { relativeReset, isRollingPlaceholder, quotaForModel, bindingWindow } = await loadModules(`
-  export { relativeReset, isRollingPlaceholder, quotaForModel, bindingWindow } from '${projectPath('renderer/src/lib/quota.ts')}'
+const { relativeReset, isRollingPlaceholder, quotaForModel, windowFor } = await loadModules(`
+  export { relativeReset, isRollingPlaceholder, quotaForModel, windowFor } from '${projectPath('renderer/src/lib/quota.ts')}'
 `)
 
 const inMs = (ms) => new Date(Date.now() + ms).toISOString()
@@ -87,50 +87,39 @@ test('quotaForModel ignores unlimited models and unknown ids', () => {
   assert.equal(quotaForModel(models, null), null)
 })
 
-// ───────────────────── Which window is the header showing? ─────────────────────
+// ───────────── The dashboard shows the 5-hour window ─────────────
 //
-// The per-model bucket reports whichever limit is TIGHTER, carrying that
-// window's reset. A paid account can therefore read "13% left, resets in 3d" —
-// the WEEKLY limit — while the 5-hour window is nearly full and translation
-// works right now. Unlabelled that reads as "blocked for three days".
+// The dashboard answers "can I translate right now?", which is the 5-hour
+// rolling window. The weekly allowance moved to Advanced: showing it here meant
+// the strip read "13% left, resets in 3d" while translation worked fine.
 
-const geminiWindows = [
-  { key: 'gemini_weekly', remainingPercentage: 13.5, window: 'weekly' },
-  { key: 'gemini_5h', remainingPercentage: 99.7, window: '5h' }
+const bothWindows = [
+  { key: 'gemini_weekly', remainingPercentage: 13.5, window: 'weekly', resetAt: null },
+  { key: 'gemini_5h', remainingPercentage: 99.7, window: '5h', resetAt: null }
 ]
 
-test('the weekly window is identified when it is the binding one', () => {
-  const b = bindingWindow('gemini-3.1-pro-low', 14, geminiWindows)
-  assert.equal(b?.window, 'weekly')
+test('the 5-hour window is selected for the dashboard', () => {
+  const w = windowFor('gemini-3.1-pro-low', bothWindows, '5h')
+  assert.equal(w?.remainingPercentage, 99.7)
 })
 
-test('the 5-hour window is identified when it is the binding one', () => {
-  const tight5h = [
-    { key: 'gemini_weekly', remainingPercentage: 88, window: 'weekly' },
-    { key: 'gemini_5h', remainingPercentage: 12, window: '5h' }
-  ]
-  const b = bindingWindow('gemini-3.1-pro-low', 12, tight5h)
-  assert.equal(b?.window, '5h')
+test('the weekly window is available separately', () => {
+  const w = windowFor('gemini-3.1-pro-low', bothWindows, 'weekly')
+  assert.equal(w?.remainingPercentage, 13.5)
 })
 
-test('claude and gpt models match their own window family', () => {
+test('window lookup follows the model family', () => {
   const windows = [
-    { key: 'gemini_weekly', remainingPercentage: 13.5, window: 'weekly' },
-    { key: 'claude_gpt_weekly', remainingPercentage: 64, window: 'weekly' }
+    { key: 'gemini_5h', remainingPercentage: 99.7, window: '5h' },
+    { key: 'claude_gpt_5h', remainingPercentage: 0, window: '5h' }
   ]
-  assert.equal(bindingWindow('claude-sonnet-5-5-high', 64, windows)?.window, 'weekly')
-  assert.equal(bindingWindow('gpt-oss-120b-medium', 64, windows)?.window, 'weekly')
-  // A Gemini model must not be matched to the Claude pool, even at the same pct.
-  assert.equal(bindingWindow('gemini-3.1-pro-low', 64, windows), null)
+  // A Claude model must read the Claude pool, not Gemini's.
+  assert.equal(windowFor('claude-sonnet-5-5-high', windows, '5h')?.remainingPercentage, 0)
+  assert.equal(windowFor('gemini-3.1-pro-low', windows, '5h')?.remainingPercentage, 99.7)
 })
 
-test('an unmatched percentage returns null rather than a guess', () => {
-  // Better a bare number than a wrong label — the caller shows no window name.
-  assert.equal(bindingWindow('gemini-3.1-pro-low', 42, geminiWindows), null)
-})
-
-test('missing inputs return null instead of throwing', () => {
-  assert.equal(bindingWindow(null, 13, geminiWindows), null)
-  assert.equal(bindingWindow('gemini-3.1-pro-low', null, geminiWindows), null)
-  assert.equal(bindingWindow('gemini-3.1-pro-low', 13, []), null)
+test('a missing window returns null so the caller can fall back', () => {
+  assert.equal(windowFor('gemini-3.1-pro-low', [bothWindows[0]], '5h'), null)
+  assert.equal(windowFor(null, bothWindows, '5h')?.window, '5h')
+  assert.equal(windowFor('gemini-3.1-pro-low', [], '5h'), null)
 })

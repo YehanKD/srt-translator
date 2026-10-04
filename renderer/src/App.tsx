@@ -249,6 +249,8 @@ export default function App() {
           onSelectModel={selectModel}
           onResetToAuto={resetToAutoModel}
           onClose={() => setShowAdvanced(false)}
+          quota={quota}
+          onRefreshQuota={refreshQuota}
         />
       )}
     </div>
