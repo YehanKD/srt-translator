@@ -1,8 +1,29 @@
 import { app, BrowserWindow, Menu, screen } from 'electron'
 import { join } from 'path'
 import { readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { setDefaultResultOrder } from 'node:dns'
 import { registerIpcHandlers } from './ipc-handlers'
 import { captureConsole, installCrashHandlers, log } from './modules/logger'
+
+/**
+ * Prefer IPv4 when resolving hostnames.
+ *
+ * WHY: a machine can hold a global IPv6 address and still have no working IPv6
+ * route — a router that advertises IPv6 but does not forward it, which is a
+ * common home-network state. Node's default `verbatim` order then hands out
+ * AAAA records first, and a connection to Google's API waits the full 10s
+ * connect timeout before falling back to IPv4.
+ *
+ * That produced an intermittent "fetch failed" (UND_ERR_CONNECT_TIMEOUT) on the
+ * sign-in path: roughly one attempt in five succeeded, depending on which
+ * address the resolver returned first. The failure looked like an auth problem
+ * and was purely a network one.
+ *
+ * `cloudcode-pa.googleapis.com` alone returns 24 AAAA records, so the chance of
+ * hitting a dead IPv6 route is high. IPv4 works reliably, so prefer it. This is
+ * set once, before any request is made.
+ */
+setDefaultResultOrder('ipv4first')
 
 // Must be set BEFORE app.whenReady(): on Linux, Electron's safeStorage only
 // reports encryption as available when it knows which keyring backend to use.
