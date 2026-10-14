@@ -55,7 +55,25 @@ function rotateIfNeeded(path: string): void {
 function formatArg(value: unknown): string {
   if (value instanceof Error) {
     // Stack is the useful part for a crash; message alone rarely explains it.
-    return value.stack || `${value.name}: ${value.message}`
+    const base = value.stack || `${value.name}: ${value.message}`
+
+    // `fetch` reports every network failure as a bare "TypeError: fetch failed"
+    // and hides the real reason in `cause`. Without this the log cannot tell a
+    // DNS failure from a TLS one from a connect timeout — which is precisely
+    // the distinction needed to diagnose a failing sign-in, and its absence
+    // sent us looking at Google's side when the problem was local.
+    const cause = (value as { cause?: unknown }).cause
+    if (cause !== undefined && cause !== null) {
+      const detail =
+        cause instanceof Error
+          ? `${cause.name}: ${cause.message}` +
+            ((cause as { code?: string }).code ? ` [${(cause as { code?: string }).code}]` : '')
+          : typeof cause === 'object'
+            ? JSON.stringify(cause)
+            : String(cause)
+      return `${base}\n    caused by: ${detail}`
+    }
+    return base
   }
   if (typeof value === 'string') return value
   try {

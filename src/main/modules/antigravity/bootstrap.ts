@@ -4,6 +4,7 @@ import {
   ANTIGRAVITY_ONBOARD_USER_ENDPOINTS
 } from './constants'
 import { extractTier, planLabelFromTier } from './tier'
+import { log } from '../logger'
 
 export interface CodeAssistInfo {
   projectId: string
@@ -36,6 +37,50 @@ export interface AccountDiscovery {
   plan: string
   /** True when Google returned 200 but no project — BYOP, needs a GCP project. */
   requiresManualProject: boolean
+  /**
+   * True when the request never reached Google — a network failure, not an
+   * answer. The caller must treat this as "unknown", never as "Free": a VPN
+   * reconnect or a killswitch window produces exactly this, and reporting it as
+   * a free account is a wrong answer that looks like a real one.
+   */
+  unreachable?: boolean
+}
+
+/**
+ * Fetch with retries, for requests that must not be confused with an answer.
+ *
+ * A VPN reconnect blocks traffic through the killswitch for a second or two.
+ * The previous code caught that timeout, moved to the next endpoint, and
+ * finally returned a default of "Free" — so a momentary network blip surfaced
+ * as "your account is free with no data", which is a plausible-looking lie and
+ * sent us looking at Google's side of the connection instead of the local one.
+ *
+ * Network errors are retried with backoff; an HTTP response is returned as-is,
+ * because a 401 or 403 IS an answer and retrying it just wastes time.
+ */
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  attempts = 3
+): Promise<Response | null> {
+  let lastError: unknown = null
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(url, init)
+      return res
+    } catch (err) {
+      lastError = err
+      // The last attempt's failure is the one reported.
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, 700 * (i + 1)))
+    }
+  }
+  if (lastError) {
+    const code = (lastError as { cause?: { code?: string } }).cause?.code ?? ''
+    log.warn(
+      `antigravity: ${url} unreachable after ${attempts} attempts${code ? ` [${code}]` : ''}`
+    )
+  }
+  return null
 }
 
 /**
@@ -50,15 +95,21 @@ export interface AccountDiscovery {
 export async function discoverAccount(accessToken: string): Promise<AccountDiscovery> {
   const headers = getAntigravityContentHeaders(accessToken)
   const metadata = getAntigravityLoadCodeAssistMetadata()
+  let unreachable = false
 
   for (const endpoint of ANTIGRAVITY_LOAD_CODE_ASSIST_ENDPOINTS) {
     try {
-      const response = await fetch(endpoint, {
+      const response = await fetchWithRetry(endpoint, {
         method: 'POST',
         headers,
         body: JSON.stringify({ metadata }),
         signal: AbortSignal.timeout(10000)
       })
+      // null means the request never got an answer — do not treat it as one.
+      if (!response) {
+        unreachable = true
+        continue
+      }
       if (!response.ok) continue
 
       const data = (await response.json()) as Record<string, unknown>
@@ -73,10 +124,18 @@ export async function discoverAccount(accessToken: string): Promise<AccountDisco
         requiresManualProject: !projectId
       }
     } catch {
-      // try next endpoint
+      // A malformed body is not a network failure; try the next endpoint.
     }
   }
-  return { projectId: null, tierId: null, plan: 'Free', requiresManualProject: false }
+  // Every endpoint was unreachable: say so rather than claiming "Free", which
+  // the UI would render as a real account state.
+  return {
+    projectId: null,
+    tierId: null,
+    plan: 'Unknown',
+    requiresManualProject: false,
+    unreachable
+  }
 }
 
 /** Read a project id from the several shapes the API uses. */

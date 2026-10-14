@@ -40,6 +40,23 @@ test('captures an Error stack, not just its message', () => {
   assert.ok(/at /.test(text), 'a stack frame should be recorded')
 })
 
+test('records the cause of a wrapped error', () => {
+  // `fetch` hides every network failure behind "fetch failed" and puts the real
+  // reason in `cause`. Without it the log cannot distinguish a DNS failure from
+  // a TLS one from a connect timeout — the distinction that diagnoses a failing
+  // sign-in. Omitting it once sent us investigating Google instead of the local
+  // network.
+  const inner = new Error('Connect Timeout Error')
+  inner.code = 'UND_ERR_CONNECT_TIMEOUT'
+  const outer = new TypeError('fetch failed')
+  outer.cause = inner
+  log.error('unhandled error:', outer)
+  const text = readLog()
+  assert.ok(text.includes('fetch failed'))
+  assert.ok(text.includes('Connect Timeout Error'), 'cause message must be recorded')
+  assert.ok(text.includes('UND_ERR_CONNECT_TIMEOUT'), 'cause code must be recorded')
+})
+
 test('serialises non-string arguments without throwing', () => {
   assert.doesNotThrow(() => log.info('object:', { a: 1, b: [2, 3] }))
   assert.ok(readLog().includes('{"a":1'))
