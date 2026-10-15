@@ -1,5 +1,10 @@
 import type { SubtitleEntry, ApiSettings, TranslationProgress } from '@shared/types'
-import { CHUNK_SIZE, CONCURRENCY, MAX_CONCURRENCY } from '@shared/constants'
+import {
+  CHUNK_SIZE,
+  CONCURRENCY,
+  GEMINI_WEB_CHUNK_SIZE,
+  MAX_CONCURRENCY
+} from '@shared/constants'
 import { buildMessages } from './prompt-builder'
 import { sendAntigravityWithFallback, AntigravityApiError, AntigravityModelError } from './antigravity/transport'
 import type { AntigravityMessage } from './antigravity/transport'
@@ -119,15 +124,28 @@ export interface ResumeInfo {
  */
 export async function translateAll(params: TranslateAllParams): Promise<SubtitleEntry[]> {
   const { entries, settings, onProgress, signal, sourceName } = params
-  const chunks = chunkArray(entries, CHUNK_SIZE)
+
+  // Gemini web takes a much larger chunk AND must run serially.
+  //
+  // Chunk size: that provider is limited by how many MESSAGES the account
+  // sends, not by cues, so one big request beats a hundred small ones.
+  //
+  // Concurrency 1: every request appends to ONE conversation, and two requests
+  // racing on the same chat would interleave replies and cross-contaminate the
+  // context. Serial is also what keeps the message count predictable, which is
+  // the whole point of the larger chunk.
+  const viaGeminiWeb = isGeminiWebModel(settings.modelId)
+  const chunkSize = viaGeminiWeb ? GEMINI_WEB_CHUNK_SIZE : CHUNK_SIZE
+
+  const chunks = chunkArray(entries, chunkSize)
   const totalChunks = chunks.length
   if (totalChunks === 0) return []
 
   // One conversation per JOB, not per chunk. The Gemini-web provider appends
   // every request to a single chat; without this reset a second job would
   // continue the first job's conversation, carrying unrelated dialogue into
-  // the model's context. Only meaningful for that provider, but harmless here.
-  if (isGeminiWebModel(settings.modelId)) {
+  // the model's context.
+  if (viaGeminiWeb) {
     const { resetChatSession } = await import('./gemini-web')
     resetChatSession()
   }
@@ -188,7 +206,11 @@ export async function translateAll(params: TranslateAllParams): Promise<Subtitle
 
   let nextChunk = 0
   let inflight = 0
-  let limit = Math.min(CONCURRENCY, totalChunks)
+  // Gemini web runs strictly serially: every request appends to the SAME chat,
+  // so overlapping requests would interleave replies and mix unrelated dialogue
+  // into the model's context. Its large chunk means there is little to parallelise
+  // anyway — a 1500-cue movie is 3 requests.
+  let limit = viaGeminiWeb ? 1 : Math.min(CONCURRENCY, totalChunks)
   let last429At = 0
   // First deterministic (non-retryable) failure aborts the whole job with a
   // clear message instead of silently completing with English subtitles.
@@ -416,7 +438,14 @@ export async function translateAll(params: TranslateAllParams): Promise<Subtitle
     })
 
     // Steady clean streak → recover one slot at a time, up to the ceiling.
-    if (!saw429 && Date.now() - last429At > 8000 && limit < MAX_CONCURRENCY) {
+    // Never for Gemini web: its requests share one conversation and must stay
+    // serial, so the ramp would reintroduce the interleaving this prevents.
+    if (
+      !viaGeminiWeb &&
+      !saw429 &&
+      Date.now() - last429At > 8000 &&
+      limit < MAX_CONCURRENCY
+    ) {
       limit++
     }
   }

@@ -303,3 +303,30 @@ test('without chat ids slot 2 stays the default metadata', () => {
   assert.equal(inner[2].length, 10, 'the default metadata block is 10 elements')
   assert.equal(inner[2][3], null)
 })
+
+// ───────────────────────── Chunking for Gemini web ──────────────────────────
+//
+// A Gemini web conversation is limited by how many MESSAGES the account sends,
+// not by cues. At the default 15-cue chunk a 1500-cue movie is 100 requests;
+// at 500 it is 3. Fewer messages means far less pressure on the rate limiter.
+
+test('Gemini web uses a much larger chunk than the default', async () => {
+  const { CHUNK_SIZE, GEMINI_WEB_CHUNK_SIZE } = await loadModules(`
+    export { CHUNK_SIZE, GEMINI_WEB_CHUNK_SIZE } from '${projectPath('src/shared/constants.ts')}'
+  `)
+  assert.equal(CHUNK_SIZE, 15, 'Antigravity keeps the smaller chunk')
+  assert.equal(GEMINI_WEB_CHUNK_SIZE, 500)
+  assert.ok(
+    GEMINI_WEB_CHUNK_SIZE > CHUNK_SIZE * 10,
+    'the whole point is a large reduction in request count'
+  )
+})
+
+test('a 1500-cue movie costs 3 requests on Gemini web, 100 on Antigravity', async () => {
+  const { CHUNK_SIZE, GEMINI_WEB_CHUNK_SIZE } = await loadModules(`
+    export { CHUNK_SIZE, GEMINI_WEB_CHUNK_SIZE } from '${projectPath('src/shared/constants.ts')}'
+  `)
+  const cues = 1500
+  assert.equal(Math.ceil(cues / GEMINI_WEB_CHUNK_SIZE), 3)
+  assert.equal(Math.ceil(cues / CHUNK_SIZE), 100)
+})
