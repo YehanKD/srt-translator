@@ -3,6 +3,7 @@ import { CHUNK_SIZE, CONCURRENCY, MAX_CONCURRENCY } from '@shared/constants'
 import { buildMessages } from './prompt-builder'
 import { sendAntigravityWithFallback, AntigravityApiError, AntigravityModelError } from './antigravity/transport'
 import type { AntigravityMessage } from './antigravity/transport'
+import { isGeminiWebModel, sendViaGeminiWeb, GeminiWebError } from './gemini-web'
 import { parseSrt, cleanAiResponse } from './srt-parser'
 import { log } from './logger'
 import {
@@ -268,13 +269,23 @@ export async function translateAll(params: TranslateAllParams): Promise<Subtitle
       if (signal.aborted) throw new TranslationAbortError()
 
       try {
-        const response = await sendAntigravityWithFallback({
-          model: settings.modelId,
-          messages: antigravityMessages,
-          systemInstruction,
-          maxOutputTokens: 8192,
-          abortSignal: signal
-        })
+        // Two providers behind one call site. The Gemini-web path reaches the
+        // models Antigravity no longer offers (it 404s them), and is selected by
+        // the `gweb:` id prefix — so an existing Antigravity user is unaffected.
+        const response = isGeminiWebModel(settings.modelId)
+          ? await sendViaGeminiWeb({
+              modelId: settings.modelId,
+              messages: antigravityMessages,
+              systemInstruction,
+              abortSignal: signal
+            })
+          : await sendAntigravityWithFallback({
+              model: settings.modelId,
+              messages: antigravityMessages,
+              systemInstruction,
+              maxOutputTokens: 8192,
+              abortSignal: signal
+            })
 
         const translated = buildResult(response.text)
         lastError = null
@@ -287,13 +298,24 @@ export async function translateAll(params: TranslateAllParams): Promise<Subtitle
           lastError instanceof AntigravityApiError && lastError.status === 429
         // Deterministic errors (model unavailable, forbidden, not signed in)
         // will never succeed on retry — fail this chunk fast with a clear error.
+        //
+        // The Gemini-web provider reports its refusals as GeminiWebError with a
+        // named code rather than an HTTP status. Retrying those is pure delay:
+        // an expired session or an unavailable tier does not fix itself between
+        // attempts, and six rounds of backoff is a long wait for an answer that
+        // is already known. Only `http_5xx` (a server-side blip) is worth
+        // another try, which is why it is excluded here.
+        const isGeminiWebDeterministic =
+          lastError instanceof GeminiWebError && !lastError.code.startsWith('http_5')
         const isDeterministic =
           lastError instanceof AntigravityModelError ||
           (lastError instanceof AntigravityApiError &&
             lastError.status !== 429 &&
-            lastError.status < 500)
+            lastError.status < 500) ||
+          isGeminiWebDeterministic
         const isRateLimit =
           is429 ||
+          (lastError instanceof GeminiWebError && lastError.code === 'bard_error_8') ||
           lastError.message?.includes('429') ||
           lastError.message?.includes('rate')
         if (isRateLimit) {

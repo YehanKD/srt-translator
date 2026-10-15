@@ -1,6 +1,6 @@
 import { ipcMain, BrowserWindow, shell, app } from 'electron'
 import { IPC_CHANNELS } from '@shared/constants'
-import type { SubtitleEntry, ApiSettings, IpcResponse, AuthProgress, AccountStatus, QuotaSummary, AutoSaveResult } from '@shared/types'
+import type { SubtitleEntry, ApiSettings, IpcResponse, AuthProgress, AccountStatus, QuotaSummary, AutoSaveResult, GeminiWebStatus, GeminiWebProbeResult } from '@shared/types'
 import { readFile, writeFile, access } from 'fs/promises'
 import { basename, dirname, join } from 'path'
 import { pickInputFile, readSrtFile, exportSrtFile, selectMkvFile } from './modules/file-io'
@@ -370,15 +370,42 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   // ─── Antigravity models ─────────────────────────────────────────────
 
   ipcMain.handle(IPC_CHANNELS.LIST_MODELS, async (): Promise<IpcResponse<{ id: string; name: string }[]>> => {
+    // Gemini-web models are offered unconditionally, including when Antigravity
+    // is not signed in. A user may want ONLY the Gemini-web provider — the
+    // models Antigravity no longer offers live there — and gating the list
+    // behind the other provider's session would make them unreachable. The
+    // provider reports "not signed in" clearly if one is chosen unconnected.
+    const { GEMINI_WEB_MODELS } = await import('./modules/gemini-web')
+    const geminiWebModels = GEMINI_WEB_MODELS.map((m) => ({
+      id: m.id,
+      name: m.name,
+      contextLength: 1048576,
+      maxOutputTokens: 65536
+    }))
+
     const session = getSession()
     if (!session) {
-      return { success: false, error: 'Not signed in' }
+      // Not signed in to Antigravity: still offer the Gemini-web models plus the
+      // static catalog, rather than an empty list that reads as a broken app.
+      return {
+        success: true,
+        data: [
+          ...geminiWebModels,
+          ...ANTIGRAVITY_PUBLIC_MODELS.map((m) => ({ id: m.id, name: m.name }))
+        ]
+      }
     }
 
     try {
       const token = await getAccessToken()
       if (!token) {
-        return { success: false, error: 'Session expired, please sign in again' }
+        return {
+          success: true,
+          data: [
+            ...geminiWebModels,
+            ...ANTIGRAVITY_PUBLIC_MODELS.map((m) => ({ id: m.id, name: m.name }))
+          ]
+        }
       }
 
       // First try to get available models from the quota endpoint
@@ -388,19 +415,25 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
       // If we have available models, use those
       if (availableIds.length > 0) {
         const models = pickChatModels(availableIds)
-        return { success: true, data: models }
+        return { success: true, data: [...geminiWebModels, ...models] }
       }
 
       // Fallback to static catalog
       return {
         success: true,
-        data: ANTIGRAVITY_PUBLIC_MODELS.map((m) => ({ id: m.id, name: m.name }))
+        data: [
+          ...geminiWebModels,
+          ...ANTIGRAVITY_PUBLIC_MODELS.map((m) => ({ id: m.id, name: m.name }))
+        ]
       }
     } catch (err) {
       // Fallback to static catalog on error
       return {
         success: true,
-        data: ANTIGRAVITY_PUBLIC_MODELS.map((m) => ({ id: m.id, name: m.name }))
+        data: [
+          ...geminiWebModels,
+          ...ANTIGRAVITY_PUBLIC_MODELS.map((m) => ({ id: m.id, name: m.name }))
+        ]
       }
     }
   })
@@ -623,6 +656,66 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
       return { success: true, data: app.getVersion() }
     } catch (err: unknown) {
       return { success: false, error: friendlyError(err) }
+    }
+  })
+
+  // ─── Gemini web (second provider) ─────────────────────────────────────
+
+  ipcMain.handle(IPC_CHANNELS.GWEB_STATUS, async (): Promise<IpcResponse<GeminiWebStatus>> => {
+    try {
+      const { getGeminiWebStatus } = await import('./modules/gemini-web')
+      return { success: true, data: await getGeminiWebStatus() }
+    } catch (err: unknown) {
+      return { success: false, error: friendlyError(err) }
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.GWEB_CONNECT, async (): Promise<IpcResponse<GeminiWebStatus>> => {
+    try {
+      const { connectGeminiWeb } = await import('./modules/gemini-web')
+      log.info('gemini-web: opening sign-in window')
+      const status = await connectGeminiWeb(getWindow())
+      log.info(`gemini-web: connected${status.email ? ` as ${status.email}` : ''}`)
+      return { success: true, data: status }
+    } catch (err: unknown) {
+      log.error('gemini-web: connect failed:', err)
+      // The login module reports its own named failures (closed window, timeout);
+      // surfacing that text is far more useful than a generic message.
+      const message = err instanceof Error ? err.message : String(err)
+      return { success: false, error: message || friendlyError(err) }
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.GWEB_DISCONNECT, async (): Promise<IpcResponse<void>> => {
+    try {
+      const { disconnectGeminiWeb } = await import('./modules/gemini-web')
+      await disconnectGeminiWeb()
+      log.info('gemini-web: disconnected')
+      return { success: true }
+    } catch (err: unknown) {
+      return { success: false, error: friendlyError(err) }
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.GWEB_PROBE, async (): Promise<IpcResponse<GeminiWebProbeResult[]>> => {
+    try {
+      const { probeGeminiWebModes } = await import('./modules/gemini-web')
+      const results = await probeGeminiWebModes()
+      // Log the REASON for each failure, not just ok/fail. Without it a failed
+      // probe is undiagnosable: "unavailable" cannot distinguish an expired
+      // session from a refused model from a malformed request, and those need
+      // opposite fixes.
+      for (const r of results) {
+        if (r.ok) log.info(`gemini-web: probe ${r.name} — ok`)
+        else log.error(`gemini-web: probe ${r.name} — FAILED: ${r.error ?? 'no detail'}`)
+      }
+      log.info(
+        `gemini-web: probe — ${results.map((r) => `${r.name}=${r.ok ? 'ok' : 'fail'}`).join(', ')}`
+      )
+      return { success: true, data: results }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { success: false, error: message || friendlyError(err) }
     }
   })
 

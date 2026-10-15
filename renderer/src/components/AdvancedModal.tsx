@@ -4,6 +4,7 @@ import { Modal, ModalHeader } from './Modal'
 import { IconChevronDown, IconRefresh } from './Icons'
 import { pickAutoModel } from '../lib/models'
 import { windowFor, meterColor } from '../lib/quota'
+import { GeminiWebSection } from './GeminiWebSection'
 
 interface Props {
   models: AntigravityModel[]
@@ -266,6 +267,9 @@ export function AdvancedModal({
             </p>
           </div>
         )}
+
+        {/* ── Gemini web provider ── */}
+        <GeminiWebSection />
 
         {/* ── Diagnostics ── */}
         <div className="rounded-lg border border-border bg-surface-alt px-3 py-2.5">

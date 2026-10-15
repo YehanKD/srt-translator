@@ -36,6 +36,12 @@ const electronAPI: ElectronAPI = {
   refreshQuota: () => ipcRenderer.invoke(IPC_CHANNELS.QUOTA_REFRESH),
   listModels: () => ipcRenderer.invoke(IPC_CHANNELS.LIST_MODELS),
 
+  // ─── Gemini web (second provider) ─────────────────────────────────────
+  geminiWebStatus: () => ipcRenderer.invoke(IPC_CHANNELS.GWEB_STATUS),
+  geminiWebConnect: () => ipcRenderer.invoke(IPC_CHANNELS.GWEB_CONNECT),
+  geminiWebDisconnect: () => ipcRenderer.invoke(IPC_CHANNELS.GWEB_DISCONNECT),
+  geminiWebProbe: () => ipcRenderer.invoke(IPC_CHANNELS.GWEB_PROBE),
+
   // ─── Files ────────────────────────────────────────────────────────────
   pickInput: () => ipcRenderer.invoke(IPC_CHANNELS.IMPORT_SRT),
   importSrtFromPath: (filePath: string) => ipcRenderer.invoke(IPC_CHANNELS.IMPORT_SRT_PATH, filePath),

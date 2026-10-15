@@ -142,6 +142,21 @@ export interface AuthProgress {
   authUrl?: string
 }
 
+export interface GeminiWebStatus {
+  signedIn: boolean
+  email?: string
+  /** True when the OS keyring can store the session between launches. */
+  canPersist: boolean
+}
+
+/** One tier's reachability, as measured by an actual request. */
+export interface GeminiWebProbeResult {
+  name: string
+  mode: number
+  ok: boolean
+  error?: string
+}
+
 export interface AntigravityModel {
   id: string
   name: string
@@ -198,6 +213,19 @@ export interface ElectronAPI {
   getQuota: () => Promise<IpcResponse<QuotaSummary>>
   refreshQuota: () => Promise<IpcResponse<QuotaSummary>>
   listModels: () => Promise<IpcResponse<AntigravityModel[]>>
+
+  // ─── Gemini web (second provider) ─────────────────────────────────────
+  /** Connection state of the Gemini-web login, kept apart from Antigravity. */
+  geminiWebStatus: () => Promise<IpcResponse<GeminiWebStatus>>
+  /** Open the sign-in window; resolves once a usable session exists. */
+  geminiWebConnect: () => Promise<IpcResponse<GeminiWebStatus>>
+  geminiWebDisconnect: () => Promise<IpcResponse<void>>
+  /**
+   * Ask Google which model tiers this account can reach. The tier→model mapping
+   * is server-side, so this is the only honest answer to "do I get the newest
+   * Pro?" — surfaced so the user can check before trusting a long job to it.
+   */
+  geminiWebProbe: () => Promise<IpcResponse<GeminiWebProbeResult[]>>
   // Files
   /** Combined picker: accepts .srt and .mkv, classified by extension. */
   pickInput: () => Promise<IpcResponse<PickedInput | null>>

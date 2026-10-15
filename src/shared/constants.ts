@@ -41,6 +41,12 @@ export const IPC_CHANNELS = {
   QUOTA_GET: 'quota-get',
   QUOTA_REFRESH: 'quota-refresh',
   LIST_MODELS: 'list-models',
+  // Gemini web — the second provider. Reaches models Antigravity no longer
+  // offers; kept separate so its account state never mixes with the other.
+  GWEB_STATUS: 'gweb-status',
+  GWEB_CONNECT: 'gweb-connect',
+  GWEB_DISCONNECT: 'gweb-disconnect',
+  GWEB_PROBE: 'gweb-probe',
   // Diagnostics — open the log file / its folder for bug reports.
   OPEN_LOG: 'open-log',
   /** The running app's version, so a bug report can name the build. */
