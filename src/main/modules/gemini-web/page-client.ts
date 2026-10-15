@@ -276,29 +276,37 @@ export async function sendViaPage(opts: PageSendOptions): Promise<string> {
          var dec = new TextDecoder();
          var acc = '';
          var t0 = Date.now();
-         var sawData = false;
-         // Waiting budgets, not verdicts. done is the normal exit; these only
-         // decide when to stop waiting on a stream that has gone silent.
+
+         // ONE generous silence budget, and let the stream itself decide.
          //
-         // The first byte can take a while: the model may reason before emitting
-         // anything, and a 500-cue request was measured at 71s end to end. So the
-         // no-data-yet budget is generous. Once data HAS arrived, a long gap means
-         // the stream has stalled, and waiting further cannot help.
-         var FIRST_MS = 90000;   // nothing received yet
-         var GAP_MS = 30000;     // received some, then silence
+         // This endpoint's timing is not predictable enough for anything cleverer.
+         // Measured on Argon (a thinking model):
+         //   - it opens with a small session frame carrying no answer text
+         //   - then goes SILENT for 8.5s or more while it reasons — longer once
+         //     the conversation already holds a previous chunk's context
+         //   - then streams, but PAUSES MID-REPLY for over 30s at a time
+         //   - a 500-cue chunk takes ~240s end to end, against ~90s on Flash-Lite
+         //
+         // Earlier attempts tried to tell "thinking" apart from "stalled" by
+         // watching whether answer text had arrived. That fails, because the
+         // mid-reply pauses are just as long as the think gap. Every such
+         // heuristic cut a healthy request short and produced an empty reply.
+         //
+         // So: wait for done, which is the server's own signal that the reply is
+         // complete. The silence budget exists only so a truly dead connection
+         // cannot hang forever, and is set well above the longest pause observed.
+         var SILENCE_MS = 180000; // 3 min of TOTAL silence before giving up
 
          while (true) {
-           var budget = sawData ? GAP_MS : FIRST_MS;
            var step = await Promise.race([
              reader.read().then(function (r) { return { kind: 'data', r: r }; }),
              new Promise(function (resolve) {
-               setTimeout(function () { resolve({ kind: 'idle' }); }, budget);
+               setTimeout(function () { resolve({ kind: 'idle' }); }, SILENCE_MS);
              })
            ]);
 
-           if (step.kind === 'idle') break;   // stream went quiet; return what we have
-           if (step.r.done) break;            // stream ended normally
-           sawData = true;
+           if (step.kind === 'idle') break;   // nothing at all for 3 min
+           if (step.r.done) break;            // the server says the reply is complete
            acc += dec.decode(step.r.value, { stream: true });
          }
 

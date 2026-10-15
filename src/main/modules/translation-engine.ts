@@ -410,6 +410,9 @@ export async function translateAll(params: TranslateAllParams): Promise<Subtitle
 
         if (isDeterministic) {
           fatalError = lastError
+          log.error(
+            `chunk ${i + 1}/${totalChunks}: deterministic failure — ${lastError.message.slice(0, 200)}`
+          )
           emit({
             chunkIndex: i,
             totalChunks,
@@ -419,6 +422,15 @@ export async function translateAll(params: TranslateAllParams): Promise<Subtitle
           // Unwind this worker; the dispatcher drains and translateAll throws.
           throw lastError
         }
+
+        // Every retryable failure is recorded with its reason. Without this a
+        // failed chunk is undiagnosable after the fact: the log showed only
+        // "1 of 3 chunks failed", with nothing about WHY, so there was no way
+        // to tell a refusal from a network drop from a stalled stream.
+        log.warn(
+          `chunk ${i + 1}/${totalChunks} attempt ${attempt + 1}/${maxAttempts} failed — ` +
+            `${lastError.constructor?.name ?? 'Error'}: ${lastError.message.slice(0, 200)}`
+        )
 
         if (attempt < maxAttempts - 1) {
           if (isRateLimit) {
@@ -449,6 +461,25 @@ export async function translateAll(params: TranslateAllParams): Promise<Subtitle
     // Every attempt failed. Record the chunk as failed (so the job reports an
     // error rather than a clean success) and settle it with the ORIGINAL text.
     failedChunks.add(i)
+    log.error(
+      `chunk ${i + 1}/${totalChunks} FAILED after ${maxAttempts} attempts — ` +
+        `${lastError?.constructor?.name ?? 'Error'}: ${(lastError?.message ?? 'unknown').slice(0, 200)}`
+    )
+
+    // A failed chunk can leave the conversation holding a half-finished turn.
+    // Continuing from there makes the NEXT chunk inherit that broken context, so
+    // the chat is abandoned and the next chunk opens a fresh one. Without this a
+    // single failure poisons everything after it.
+    if (viaGeminiWeb) {
+      try {
+        const { resetChatSession } = await import('./gemini-web')
+        resetChatSession()
+        log.info(`chunk ${i + 1}/${totalChunks}: starting a new Gemini web chat for the next chunk`)
+      } catch {
+        // Not fatal — the next chunk simply continues the old conversation.
+      }
+    }
+
     emit({
       chunkIndex: i,
       totalChunks,
