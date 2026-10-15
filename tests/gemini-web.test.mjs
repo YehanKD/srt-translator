@@ -7,6 +7,7 @@ const {
   buildModelHeader,
   makeRequestUuid,
   makeSessionId,
+  parseChatMetadata,
   parseResponseText,
   cleanResponseText,
   describeHttpFailure,
@@ -14,7 +15,7 @@ const {
   GeminiWebError
 } = await loadModules(`
   export {
-    buildInnerPayload, buildModelHeader, makeRequestUuid, makeSessionId, parseResponseText,
+    buildInnerPayload, buildModelHeader, makeRequestUuid, makeSessionId, parseChatMetadata, parseResponseText,
     cleanResponseText, describeHttpFailure, GEMINI_WEB_MODELS, GeminiWebError
   } from '${projectPath('src/main/modules/gemini-web/protocol.ts')}'
 `)
@@ -260,4 +261,45 @@ test('an unknown gweb tier resolves to null, not a wrong model', () => {
   // model than the user selected.
   assert.equal(modelForModelId('gweb:nonexistent'), null)
   assert.equal(modelForModelId('gemini-3.1-pro-low'), null)
+})
+
+// ────────────────────────── Conversation continuity ─────────────────────────
+//
+// Sending no metadata starts a NEW chat per request. A 500-cue job created ~30
+// chats that way, which filled the account's history and got it rate limited.
+
+test('a reply\'s chat ids are extracted for the next request', () => {
+  // The pair lives at inner[1] of a wrb.fr frame.
+  const inner = JSON.stringify([null, ['c_abc123', 'r_def456']])
+  const line = JSON.stringify([['wrb.fr', 'x', inner, null, null, null, 'generic'], null, null])
+  const raw = [line + ' '.repeat(Math.max(0, 200 - line.length))].join('\n')
+  assert.deepEqual(parseChatMetadata(raw), ['c_abc123', 'r_def456'])
+})
+
+test('a chat-only pair is accepted as a continuation', () => {
+  const inner = JSON.stringify([null, ['c_only']])
+  const line = JSON.stringify([['wrb.fr', 'x', inner, null, null, null, 'generic'], null, null])
+  const raw = [line + ' '.repeat(Math.max(0, 200 - line.length))].join('\n')
+  assert.deepEqual(parseChatMetadata(raw), ['c_only'])
+})
+
+test('no ids yields null, so a fresh chat starts rather than a bad continuation', () => {
+  assert.equal(parseChatMetadata('no frames here'), null)
+  const inner = JSON.stringify([null, null])
+  const line = JSON.stringify([['wrb.fr', 'x', inner, null, null, null, 'generic'], null, null])
+  const raw = [line + ' '.repeat(Math.max(0, 200 - line.length))].join('\n')
+  assert.equal(parseChatMetadata(raw), null)
+})
+
+test('the chat ids are sent in payload slot 2', () => {
+  const outer = JSON.parse(buildInnerPayload('x', 3, 'U', 0, ['c_abc', 'r_def']))
+  const inner = JSON.parse(outer[1])
+  assert.deepEqual(inner[2], ['c_abc', 'r_def'])
+})
+
+test('without chat ids slot 2 stays the default metadata', () => {
+  const outer = JSON.parse(buildInnerPayload('x', 3, 'U'))
+  const inner = JSON.parse(outer[1])
+  assert.equal(inner[2].length, 10, 'the default metadata block is 10 elements')
+  assert.equal(inner[2][3], null)
 })

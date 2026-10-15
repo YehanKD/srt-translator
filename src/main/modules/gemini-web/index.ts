@@ -9,6 +9,7 @@ import {
   probeGeminiWebModels,
   hasGeminiWebSession,
   closeWorker,
+  resetChatSession,
   GeminiWebLoginError,
   type GeminiWebProbeEntry
 } from './page-client'
@@ -143,4 +144,4 @@ export async function probeGeminiWebModes(): Promise<GeminiWebProbeEntry[]> {
   return probeGeminiWebModels()
 }
 
-export { GeminiWebError, GeminiWebLoginError }
+export { GeminiWebError, GeminiWebLoginError, resetChatSession }

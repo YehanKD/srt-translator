@@ -123,6 +123,15 @@ export async function translateAll(params: TranslateAllParams): Promise<Subtitle
   const totalChunks = chunks.length
   if (totalChunks === 0) return []
 
+  // One conversation per JOB, not per chunk. The Gemini-web provider appends
+  // every request to a single chat; without this reset a second job would
+  // continue the first job's conversation, carrying unrelated dialogue into
+  // the model's context. Only meaningful for that provider, but harmless here.
+  if (isGeminiWebModel(settings.modelId)) {
+    const { resetChatSession } = await import('./gemini-web')
+    resetChatSession()
+  }
+
   const settled: (SubtitleEntry[] | null)[] = new Array(totalChunks).fill(null)
   // Chunks that used up every retry. Non-empty at the end => the job FAILED and
   // must be reported as such (never as a successful run that produced English).

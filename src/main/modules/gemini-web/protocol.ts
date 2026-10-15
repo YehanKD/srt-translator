@@ -94,13 +94,18 @@ export function buildInnerPayload(
   prompt: string,
   mode: number,
   uuid: string,
-  thinkMode: number = THINK_DEEPEST
+  thinkMode: number = THINK_DEEPEST,
+  chatMetadata?: string[] | null
 ): string {
   const a: unknown[] = new Array(81).fill(null)
 
   a[0] = [prompt, 0, null, null, null, null, 0]
   a[1] = ['en']
-  a[2] = DEFAULT_METADATA
+  // [2] continues an existing conversation. Sending the `[cid, rid]` pair the
+  // previous reply returned keeps every chunk in ONE chat; leaving it as the
+  // default metadata starts a new conversation per request, which fills the
+  // history with hundreds of chats and gets the account rate limited.
+  a[2] = chatMetadata ?? DEFAULT_METADATA
   a[6] = [1] // [1], not [0]
   a[7] = 1 // streaming
   a[10] = 1
@@ -119,6 +124,59 @@ export function buildInnerPayload(
   a[80] = 1
 
   return JSON.stringify([null, JSON.stringify(a)])
+}
+
+/**
+ * Pull the `[chatId, replyId]` pair out of a reply, for the next request.
+ *
+ * Every response carries the conversation's identifiers at inner[1]. Sending
+ * them back in slot [2] appends to the SAME chat. Without this each request
+ * starts a new conversation: a 500-cue job produced ~30 chats, and the account
+ * was rate limited because of it.
+ *
+ * Returns null when no pair is present, which is the correct signal to start a
+ * fresh conversation rather than sending a malformed continuation.
+ */
+export function parseChatMetadata(raw: string): string[] | null {
+  for (const line of raw.split('\n')) {
+    if (!line.includes('"wrb.fr"')) continue
+
+    let arr: unknown
+    try {
+      arr = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (!Array.isArray(arr) || !arr.length) continue
+
+    const frame = arr[0] as unknown
+    if (!Array.isArray(frame) || frame.length < 3) continue
+
+    const innerStr = frame[2]
+    if (typeof innerStr !== 'string') continue
+
+    let inner: unknown
+    try {
+      inner = JSON.parse(innerStr)
+    } catch {
+      continue
+    }
+    if (!Array.isArray(inner)) continue
+
+    const pair = inner[1]
+    if (!Array.isArray(pair) || !pair.length) continue
+
+    const cid = pair[0]
+    const rid = pair[1]
+    if (typeof cid === 'string' && cid) {
+      // The pair may be length 1 (chat only) or 2 (chat + reply). Both are valid
+      // continuations; the reference implementation accepts either.
+      const meta = [cid]
+      if (typeof rid === 'string' && rid) meta.push(rid)
+      return meta
+    }
+  }
+  return null
 }
 
 /**

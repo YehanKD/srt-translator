@@ -3,12 +3,14 @@ import {
   GEMINI_ORIGIN,
   GEMINI_WEB_MODELS,
   GeminiWebError,
+  THINK_DEEPEST,
   buildInnerPayload,
   buildModelHeader,
   cleanResponseText,
   describeHttpFailure,
   makeRequestUuid,
   makeSessionId,
+  parseChatMetadata,
   parseResponseText,
   type GeminiWebModel
 } from './protocol'
@@ -54,6 +56,23 @@ let worker: BrowserWindow | null = null
  * server answer with a bare `[13]` status frame and no text.
  */
 let clientSessionId = makeSessionId()
+
+/**
+ * The conversation the current job is appending to, as `[chatId, replyId]`.
+ *
+ * Held here rather than threaded through every call site: a translation job
+ * makes hundreds of requests, and each one must continue the SAME chat. Sending
+ * no metadata starts a new conversation per request, which filled the account's
+ * history with hundreds of chats and got it rate limited.
+ *
+ * Cleared by resetChatSession() when a new job begins.
+ */
+let lastChatMetadata: string[] | null = null
+
+/** Start a fresh conversation on the next send. Call once per job. */
+export function resetChatSession(): void {
+  lastChatMetadata = null
+}
 
 export class GeminiWebLoginError extends Error {
   readonly code: string
@@ -164,6 +183,11 @@ export interface PageSendOptions {
   mode: number
   /** The 16-hex model id for the model header. */
   modelId?: string
+  /**
+   * Continue this conversation instead of starting a new one, as
+   * `[chatId, replyId]`. Omitted for the first chunk of a job.
+   */
+  chatMetadata?: string[] | null
   signal?: AbortSignal
 }
 
@@ -185,7 +209,10 @@ export async function sendViaPage(opts: PageSendOptions): Promise<string> {
   const st = await ensureReady(win)
 
   const uuid = makeRequestUuid()
-  const fReq = buildInnerPayload(opts.prompt, opts.mode, uuid)
+  // Passing the previous reply's [chatId, replyId] appends to the SAME chat.
+  // Without it every chunk opens a new conversation — a 500-cue job created ~30
+  // chats, which is what got the account rate limited.
+  const fReq = buildInnerPayload(opts.prompt, opts.mode, uuid, THINK_DEEPEST, opts.chatMetadata)
 
   const model: GeminiWebModel | undefined = GEMINI_WEB_MODELS.find(
     (m) => m.id === opts.modelId
@@ -308,6 +335,11 @@ export async function sendViaPage(opts: PageSendOptions): Promise<string> {
       isModelStatus ? 'model_refused' : 'empty_reply'
     )
   }
+
+  // The reply carries the conversation's ids. Handing them back on the next call
+  // keeps the whole job in one chat instead of creating one per chunk.
+  lastChatMetadata = parseChatMetadata(raw) ?? lastChatMetadata
+
   return text
 }
 
