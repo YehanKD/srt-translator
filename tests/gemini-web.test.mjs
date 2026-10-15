@@ -330,3 +330,63 @@ test('a 1500-cue movie costs 3 requests on Gemini web, 100 on Antigravity', asyn
   assert.equal(Math.ceil(cues / GEMINI_WEB_CHUNK_SIZE), 3)
   assert.equal(Math.ceil(cues / CHUNK_SIZE), 100)
 })
+
+// ──────────────────── Message-count minimising chunk split ──────────────────
+//
+// A trailing fragment must not cost a whole extra message. 509 cues used to
+// become 500 + 9 — a second request for 2% of the work.
+
+const { chunkForGeminiWeb } = await loadModules(`
+  export { chunkForGeminiWeb } from '${projectPath('src/main/modules/translation-engine.ts')}'
+`, {
+  electronStub: `
+    export const app = { getPath: () => '/tmp' };
+    export const safeStorage = { isEncryptionAvailable: () => false };
+    export class BrowserWindow {}
+    export const session = { fromPartition: () => ({ cookies: { get: async () => [] }, clearStorageData: async () => {} }) };
+    export default {};
+  `
+})
+
+const sizesOf = (n) => chunkForGeminiWeb(Array.from({ length: n }, (_, i) => i)).map((c) => c.length)
+
+test('509 cues fit in ONE request, not 500 + 9', () => {
+  assert.deepEqual(sizesOf(509), [509])
+})
+
+test('a file up to the ceiling is a single request', () => {
+  assert.deepEqual(sizesOf(600), [600])
+  assert.deepEqual(sizesOf(500), [500])
+})
+
+test('a small trailing fragment merges into the previous chunk', () => {
+  // 1100 = 500 + 600, not 500 + 500 + 100.
+  assert.deepEqual(sizesOf(1100), [500, 600])
+})
+
+test('a large trailing fragment stays its own request', () => {
+  // 700 = 500 + 200; 200 is not a trivial fragment, and merging would exceed
+  // the ceiling anyway.
+  assert.deepEqual(sizesOf(700), [500, 200])
+})
+
+test('no chunk ever exceeds the ceiling', () => {
+  for (const n of [500, 509, 600, 601, 700, 1000, 1100, 1200, 1500, 3000, 9999]) {
+    for (const size of sizesOf(n)) {
+      assert.ok(size <= 600, `${n} cues produced a chunk of ${size}, over the 600 ceiling`)
+    }
+  }
+})
+
+test('no cue is ever lost or duplicated', () => {
+  for (const n of [1, 15, 500, 509, 700, 1100, 1500]) {
+    const chunks = chunkForGeminiWeb(Array.from({ length: n }, (_, i) => i))
+    const flat = chunks.flat()
+    assert.equal(flat.length, n, `${n} cues: expected ${n} out, got ${flat.length}`)
+    assert.deepEqual(flat, Array.from({ length: n }, (_, i) => i), `${n} cues: order or content changed`)
+  }
+})
+
+test('an empty input yields no requests', () => {
+  assert.deepEqual(chunkForGeminiWeb([]), [])
+})

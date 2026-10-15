@@ -2,6 +2,7 @@ import type { SubtitleEntry, ApiSettings, TranslationProgress } from '@shared/ty
 import {
   CHUNK_SIZE,
   CONCURRENCY,
+  GEMINI_WEB_CHUNK_CEILING,
   GEMINI_WEB_CHUNK_SIZE,
   MAX_CONCURRENCY
 } from '@shared/constants'
@@ -38,6 +39,47 @@ function chunkArray<T>(array: T[], size: number): T[][] {
   for (let i = 0; i < array.length; i += size) {
     chunks.push(array.slice(i, i + size))
   }
+  return chunks
+}
+
+/**
+ * Split cues for a Gemini-web job, minimising the MESSAGE count.
+ *
+ * This provider is limited by how many messages the account sends, so the goal
+ * is the fewest possible requests rather than even chunk sizes. Two cases the
+ * plain fixed-size split gets wrong:
+ *
+ *   - 509 cues became 500 + 9. The trailing 9-cue request is a whole extra
+ *     message for 2% of the work.
+ *   - A file just over the boundary became two messages when one would do.
+ *
+ * So a trailing fragment is merged into the previous chunk whenever the result
+ * still fits the proven ceiling. 500 was verified against the live endpoint;
+ * 600 was verified manually by the operator, which is why the merge may push a
+ * chunk up to that figure but no further.
+ */
+export function chunkForGeminiWeb<T>(array: T[]): T[][] {
+  const MAX = GEMINI_WEB_CHUNK_SIZE
+  const CEILING = GEMINI_WEB_CHUNK_CEILING
+
+  // Small enough for one message: do not split it at all.
+  if (array.length <= CEILING) return array.length ? [array] : []
+
+  const chunks = chunkArray(array, MAX)
+
+  // Fold a small trailing fragment into the chunk before it, if the merged size
+  // stays within the ceiling. A fragment worth at least half a full chunk is
+  // left alone — merging it would make one oversized request.
+  if (chunks.length > 1) {
+    const last = chunks[chunks.length - 1]
+    if (last.length < MAX / 2) {
+      const prev = chunks[chunks.length - 2]
+      if (prev.length + last.length <= CEILING) {
+        chunks.splice(chunks.length - 2, 2, [...prev, ...last])
+      }
+    }
+  }
+
   return chunks
 }
 
@@ -135,9 +177,9 @@ export async function translateAll(params: TranslateAllParams): Promise<Subtitle
   // context. Serial is also what keeps the message count predictable, which is
   // the whole point of the larger chunk.
   const viaGeminiWeb = isGeminiWebModel(settings.modelId)
-  const chunkSize = viaGeminiWeb ? GEMINI_WEB_CHUNK_SIZE : CHUNK_SIZE
-
-  const chunks = chunkArray(entries, chunkSize)
+  // Gemini web chunks to minimise MESSAGE count (it is rate limited per message,
+  // not per cue); Antigravity keeps the fixed 15-cue split it was tuned for.
+  const chunks = viaGeminiWeb ? chunkForGeminiWeb(entries) : chunkArray(entries, CHUNK_SIZE)
   const totalChunks = chunks.length
   if (totalChunks === 0) return []
 
@@ -294,7 +336,18 @@ export async function translateAll(params: TranslateAllParams): Promise<Subtitle
 
     let saw429 = false
     let lastError: Error | null = null
-    const maxAttempts = 6
+    // A Gemini-web request carries up to 500 cues in one message, so a failure
+    // discards a lot of work. Its retry budget is therefore both LONGER and
+    // GENTLER: six attempts with a 1s/2s/4s/8s/16s backoff is ~31s total, which
+    // a VPN reconnect or a transient upstream hiccup easily outlasts. Six
+    // attempts over ~3 minutes rides that out.
+    //
+    // Antigravity keeps the shorter budget: its chunks are 15 cues, so retrying
+    // is cheap, and a 100-request job cannot afford long waits per chunk.
+    const viaGeminiWeb = isGeminiWebModel(settings.modelId)
+    const maxAttempts = viaGeminiWeb ? 6 : 6
+    const networkBackoffMs = (n: number): number =>
+      viaGeminiWeb ? Math.min(5000 * Math.pow(2, n), 90000) : 1000 * Math.pow(2, n)
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       if (signal.aborted) throw new TranslationAbortError()
@@ -378,7 +431,16 @@ export async function translateAll(params: TranslateAllParams): Promise<Subtitle
             })
             await delay(waitMs)
           } else {
-            await delay(1000 * Math.pow(2, attempt))
+            const backoff = networkBackoffMs(attempt)
+            if (viaGeminiWeb) {
+              emit({
+                chunkIndex: i,
+                totalChunks,
+                status: 'sending',
+                errorMessage: `Connection dropped, retrying in ${Math.round(backoff / 1000)}s...`
+              })
+            }
+            await delay(backoff)
           }
         }
       }

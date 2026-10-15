@@ -18,6 +18,16 @@ export const CHUNK_SIZE = 15
  */
 export const GEMINI_WEB_CHUNK_SIZE = 500
 
+/**
+ * Hard ceiling for a single Gemini-web request.
+ *
+ * 500 is the verified figure used for normal chunking; 600 was confirmed
+ * working by hand, so a trailing fragment may be merged upward to here to save
+ * a whole message. Beyond this the reply length grows past what has been
+ * proven, so a fragment larger than the gap is left as its own request.
+ */
+export const GEMINI_WEB_CHUNK_CEILING = 600
+
 export const CHUNK_DELAY_MS = 0
 
 /**

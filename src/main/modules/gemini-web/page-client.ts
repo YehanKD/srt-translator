@@ -277,31 +277,41 @@ export async function sendViaPage(opts: PageSendOptions): Promise<string> {
          var t0 = Date.now();
          var QUIET_MS = 20000;   // safety net only; done normally fires first
          var FIRST_MS = 60000;   // no data at all this long => dead stream
+         var truncated = false;
 
          while (true) {
-           var step = await Promise.race([
-             reader.read().then(function (r) { return { kind: 'data', r: r }; }),
-             new Promise(function (resolve) {
-               setTimeout(function () { resolve({ kind: 'idle' }); }, QUIET_MS);
-             })
-           ]);
+           var step;
+           try {
+             step = await Promise.race([
+               reader.read().then(function (r) { return { kind: 'data', r: r }; }),
+               new Promise(function (resolve) {
+                 setTimeout(function () { resolve({ kind: 'idle' }); }, QUIET_MS);
+               })
+             ]);
+           } catch (readErr) {
+             // The connection dropped mid-stream. Whatever arrived is INCOMPLETE,
+             // and a partial translation returned as success would export a file
+             // with untranslated gaps and no error. Report it so the caller
+             // retries the chunk instead.
+             return { status: 200, text: acc, truncated: true, error: String(readErr) };
+           }
 
-           if (step.kind === 'idle') break;                        // stalled
-           if (step.r.done) break;                                 // stream ended
+           if (step.kind === 'idle') { truncated = true; break; }   // stalled
+           if (step.r.done) break;                                  // stream ended cleanly
            acc += dec.decode(step.r.value, { stream: true });
-           if (Date.now() - t0 > FIRST_MS) break;                  // runaway guard
+           if (Date.now() - t0 > FIRST_MS) { truncated = true; break; }
          }
 
          try { await reader.cancel(); } catch (e) { /* already closed */ }
-         return { status: 200, text: acc };
+         return { status: 200, text: acc, truncated: truncated };
        } catch (e) {
          return { error: String(e) };
        }
      })()`,
     true
-  )) as { status?: number; text?: string; error?: string }
+  )) as { status?: number; text?: string; error?: string; truncated?: boolean }
 
-  if (result.error) {
+  if (result.error && !result.truncated) {
     throw new GeminiWebError(
       `The Gemini page could not complete the request: ${result.error}`,
       'page_error'
@@ -309,6 +319,16 @@ export async function sendViaPage(opts: PageSendOptions): Promise<string> {
   }
 
   const raw = result.text ?? ''
+
+  // A stream that stalled or dropped mid-flight carries only part of the reply.
+  // Returning it as success would export a file with untranslated gaps and no
+  // error, so it is reported as a failure and the caller retries the chunk.
+  if (result.truncated) {
+    throw new GeminiWebError(
+      'The reply stream was interrupted before it finished. Retrying this chunk.',
+      'stream_truncated'
+    )
+  }
 
   if (result.status && result.status !== 200) {
     // A stale build id or a rotated token is recoverable by reloading the page,
@@ -338,6 +358,10 @@ export async function sendViaPage(opts: PageSendOptions): Promise<string> {
 
   // The reply carries the conversation's ids. Handing them back on the next call
   // keeps the whole job in one chat instead of creating one per chunk.
+  //
+  // Captured BEFORE the text is returned, and only on a complete reply: a
+  // truncated response may carry a reply id whose turn never finished, and
+  // continuing from it would leave the model's context holding a half-answer.
   lastChatMetadata = parseChatMetadata(raw) ?? lastChatMetadata
 
   return text
