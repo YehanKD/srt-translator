@@ -390,3 +390,39 @@ test('no cue is ever lost or duplicated', () => {
 test('an empty input yields no requests', () => {
   assert.deepEqual(chunkForGeminiWeb([]), [])
 })
+
+// ───────────────────────────── Refusal detection ────────────────────────────
+//
+// Google refuses a model with a chatty apology at HTTP 200, not an error status.
+// Treated as text it becomes the "translation" of 500 cues, so it must be
+// recognised — otherwise the caller never tries a model that works.
+
+const { looksLikeRefusal } = await loadModules(`
+  export { looksLikeRefusal } from '${projectPath('src/main/modules/gemini-web/protocol.ts')}'
+`)
+
+test('the apology Google returns for an unavailable model is a refusal', () => {
+  assert.equal(
+    looksLikeRefusal('I seem to be encountering an error. Can I try something else for you?'),
+    true
+  )
+})
+
+test('the other observed refusal wording is caught', () => {
+  assert.equal(
+    looksLikeRefusal("I encountered an error doing what you asked. Could you try again?"),
+    true
+  )
+})
+
+test('a real translation is never mistaken for a refusal', () => {
+  // A subtitle translation is thousands of characters with cue numbering.
+  const real = '1\n00:00:01,000 --> 00:00:03,000\nසුබ උදෑසනක්.\n\n2\n00:00:04,000 --> 00:00:06,000\nකොහොමද ඉන්නේ?\n'.repeat(40)
+  assert.equal(looksLikeRefusal(real), false)
+})
+
+test('a LONG reply containing the word error is not a refusal', () => {
+  // Guards against a real translation that happens to mention an error.
+  const long = 'මෙහි දෝෂයක් සිදු විය. '.repeat(60)
+  assert.equal(looksLikeRefusal(long), false)
+})

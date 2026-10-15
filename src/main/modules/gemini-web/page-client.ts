@@ -9,6 +9,7 @@ import {
   cleanResponseText,
   describeHttpFailure,
   makeRequestUuid,
+  looksLikeRefusal,
   makeSessionId,
   parseChatMetadata,
   parseResponseText,
@@ -275,43 +276,47 @@ export async function sendViaPage(opts: PageSendOptions): Promise<string> {
          var dec = new TextDecoder();
          var acc = '';
          var t0 = Date.now();
-         var QUIET_MS = 20000;   // safety net only; done normally fires first
-         var FIRST_MS = 60000;   // no data at all this long => dead stream
-         var truncated = false;
+         var sawData = false;
+         // Waiting budgets, not verdicts. done is the normal exit; these only
+         // decide when to stop waiting on a stream that has gone silent.
+         //
+         // The first byte can take a while: the model may reason before emitting
+         // anything, and a 500-cue request was measured at 71s end to end. So the
+         // no-data-yet budget is generous. Once data HAS arrived, a long gap means
+         // the stream has stalled, and waiting further cannot help.
+         var FIRST_MS = 90000;   // nothing received yet
+         var GAP_MS = 30000;     // received some, then silence
 
          while (true) {
-           var step;
-           try {
-             step = await Promise.race([
-               reader.read().then(function (r) { return { kind: 'data', r: r }; }),
-               new Promise(function (resolve) {
-                 setTimeout(function () { resolve({ kind: 'idle' }); }, QUIET_MS);
-               })
-             ]);
-           } catch (readErr) {
-             // The connection dropped mid-stream. Whatever arrived is INCOMPLETE,
-             // and a partial translation returned as success would export a file
-             // with untranslated gaps and no error. Report it so the caller
-             // retries the chunk instead.
-             return { status: 200, text: acc, truncated: true, error: String(readErr) };
-           }
+           var budget = sawData ? GAP_MS : FIRST_MS;
+           var step = await Promise.race([
+             reader.read().then(function (r) { return { kind: 'data', r: r }; }),
+             new Promise(function (resolve) {
+               setTimeout(function () { resolve({ kind: 'idle' }); }, budget);
+             })
+           ]);
 
-           if (step.kind === 'idle') { truncated = true; break; }   // stalled
-           if (step.r.done) break;                                  // stream ended cleanly
+           if (step.kind === 'idle') break;   // stream went quiet; return what we have
+           if (step.r.done) break;            // stream ended normally
+           sawData = true;
            acc += dec.decode(step.r.value, { stream: true });
-           if (Date.now() - t0 > FIRST_MS) { truncated = true; break; }
          }
 
          try { await reader.cancel(); } catch (e) { /* already closed */ }
-         return { status: 200, text: acc, truncated: truncated };
+         // Deliberately NO completeness judgement here. The caller counts the cues
+         // that came back and retries if any are missing, which is the only check
+         // that can tell a finished reply from a stalled one — an earlier attempt
+         // to flag truncation at this level fired on ordinary quiet gaps and
+         // replaced the real reason (a model refusal) with a misleading one.
+         return { status: 200, text: acc };
        } catch (e) {
          return { error: String(e) };
        }
      })()`,
     true
-  )) as { status?: number; text?: string; error?: string; truncated?: boolean }
+  )) as { status?: number; text?: string; error?: string }
 
-  if (result.error && !result.truncated) {
+  if (result.error) {
     throw new GeminiWebError(
       `The Gemini page could not complete the request: ${result.error}`,
       'page_error'
@@ -319,16 +324,6 @@ export async function sendViaPage(opts: PageSendOptions): Promise<string> {
   }
 
   const raw = result.text ?? ''
-
-  // A stream that stalled or dropped mid-flight carries only part of the reply.
-  // Returning it as success would export a file with untranslated gaps and no
-  // error, so it is reported as a failure and the caller retries the chunk.
-  if (result.truncated) {
-    throw new GeminiWebError(
-      'The reply stream was interrupted before it finished. Retrying this chunk.',
-      'stream_truncated'
-    )
-  }
 
   if (result.status && result.status !== 200) {
     // A stale build id or a rotated token is recoverable by reloading the page,
@@ -353,6 +348,16 @@ export async function sendViaPage(opts: PageSendOptions): Promise<string> {
         ? `Gemini refused this model for the account (status 13). ${opts.modelId ? `"${opts.modelId}" may not be available — check model availability in Advanced.` : ''}`
         : 'Gemini returned an empty reply. The session may have expired, or this model may not be available on the account.',
       isModelStatus ? 'model_refused' : 'empty_reply'
+    )
+  }
+
+  // A refusal arrives as ordinary text, so it must be caught HERE — otherwise
+  // "I seem to be encountering an error" becomes the translation of 500 cues and
+  // the caller never gets the chance to try a model that works.
+  if (looksLikeRefusal(text)) {
+    throw new GeminiWebError(
+      `Gemini refused the request for this model: "${text.slice(0, 120)}"`,
+      'model_refused'
     )
   }
 

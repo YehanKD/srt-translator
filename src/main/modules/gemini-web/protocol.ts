@@ -307,6 +307,31 @@ export function parseResponseText(raw: string): string {
 }
 
 /**
+ * Recognise a model REFUSAL, which arrives as a normal 200 reply.
+ *
+ * Google answers a request for a model it will not serve with a short chatty
+ * apology rather than an error status: "I seem to be encountering an error. Can
+ * I try something else for you?". Treated as text, that becomes the
+ * "translation" of 500 cues — so it must be recognised and rejected, letting the
+ * caller try a different model.
+ *
+ * Kept narrow on purpose. A genuine translation of a subtitle file is thousands
+ * of characters and contains cue numbering; these phrases are only ever
+ * produced as a refusal, and requiring a SHORT reply guards against a real
+ * translation that happens to contain the word "error".
+ */
+export function looksLikeRefusal(text: string): boolean {
+  const t = text.trim()
+  if (t.length > 400) return false
+  return (
+    /i seem to be encountering an error/i.test(t) ||
+    /can i try something else/i.test(t) ||
+    /i encountered an error doing what you asked/i.test(t) ||
+    /^(sorry|apologies)[,.]?\s+i (can't|cannot|am unable)/i.test(t)
+  )
+}
+
+/**
  * Strip internal code-execution artifacts the web UI injects when the model
  * uses its interpreter. They are not part of the answer and would otherwise
  * land in the subtitle file.
