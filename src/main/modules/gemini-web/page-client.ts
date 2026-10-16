@@ -210,10 +210,17 @@ export async function sendViaPage(opts: PageSendOptions): Promise<string> {
   const st = await ensureReady(win)
 
   const uuid = makeRequestUuid()
-  // Passing the previous reply's [chatId, replyId] appends to the SAME chat.
-  // Without it every chunk opens a new conversation — a 500-cue job created ~30
-  // chats, which is what got the account rate limited.
-  const fReq = buildInnerPayload(opts.prompt, opts.mode, uuid, THINK_DEEPEST, opts.chatMetadata)
+  // Continue the conversation this job is already in.
+  //
+  // The caller MAY pass an explicit pair, but normally does not: the pair from
+  // the previous reply is kept in `lastChatMetadata` and used automatically.
+  // That default is the whole point — the rate limiter counts MESSAGES, so every
+  // request in a job must append to ONE chat. Passing `undefined` straight
+  // through to the payload sends the default metadata instead, which starts a
+  // NEW conversation per request; measured as three chunks producing three
+  // different chat ids, which is the behaviour this was meant to fix.
+  const chatMeta = opts.chatMetadata !== undefined ? opts.chatMetadata : lastChatMetadata
+  const fReq = buildInnerPayload(opts.prompt, opts.mode, uuid, THINK_DEEPEST, chatMeta)
 
   const model: GeminiWebModel | undefined = GEMINI_WEB_MODELS.find(
     (m) => m.id === opts.modelId
